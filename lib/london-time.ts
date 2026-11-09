@@ -40,3 +40,31 @@ export function addDays(dateKey: DateKey, days: number): DateKey {
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
+
+const londonClockFormat = new Intl.DateTimeFormat("en-GB", {
+  timeZone: DRAW_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** "HH:MM" on London's wall clock. */
+export function londonClock(instant: Date): string {
+  return londonClockFormat.format(instant);
+}
+
+/**
+ * The next instant it is 00:00 in London: tonight's draw. UK midnight is
+ * 00:00 UTC in winter (GMT) and 23:00 UTC the evening before in summer (BST).
+ * The clocks change at 01:00 UTC, never at midnight, so it always exists once.
+ */
+export function nextLondonMidnight(now: Date): Date {
+  const tomorrow = addDays(londonDateKey(now), 1);
+  const [y, m, d] = tomorrow.split("-").map(Number);
+  const utcMidnight = Date.UTC(y, m - 1, d);
+  for (const offsetHours of [0, 1]) {
+    const candidate = new Date(utcMidnight - offsetHours * 3_600_000);
+    if (londonDateKey(candidate) === tomorrow && londonClock(candidate) === "00:00") return candidate;
+  }
+  return new Date(utcMidnight);
+}

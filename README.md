@@ -14,7 +14,7 @@ The system is two repos that share one MongoDB database:
 
 ```text
  repost.bingo website (this repo)          repost-bingo-bot (private repo)
- - collects entries                        - runs the daily draw at 12:00 London time
+ - collects entries                        - runs the draw every night at 00:00 London time
  - shows the draw history                  - writes the result to `draws`
             \                              - posts the result and the repost on Instagram
              \                                        /
@@ -30,15 +30,19 @@ This repo has no draw, scheduling or Instagram posting logic. It only writes new
 It is one public page with no login and no admin:
 
 1. **Intro:** "Follow @insta.repost.bingo. Paste your post link. One random post gets reposted every day, with credit." A Follow button opens the Instagram profile.
-2. **Entry form:**
+2. **Next draw and last night's winner:**
+   - A live countdown (hours, minutes, seconds) to the next draw at 00:00 UK time. It is computed in the browser for Europe/London, so it handles GMT and BST.
+   - Just after midnight the page refreshes its data a few times so the new result appears.
+   - The most recent result is always shown: "Last night's winner", the @username, the date, the entry count and the post links.
+3. **Entry form:**
    - One field for the Instagram post link, and a Submit button. There is no username field: the site reads the post's owner from Instagram.
    - The consent line "By entering you confirm it's your own post and allow us to repost it with credit."
    - Success and error messages show inline. The success message names the owner ("You're in, @name!").
-3. **Who's in:** everyone in the pool for the next draw, newest first. Each @username links to the entered post.
-4. **Draw history:**
+4. **Who's in:** everyone in the pool for the next draw, newest first. Each @username links to the entered post.
+5. **Draw history:**
    - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post once the bot has published it.
-   - Today shows "Draw at 12:00", with the number of entries in the pool, until the bot writes today's result.
-5. **Footer:**
+   - Today shows "Draw tonight at 00:00", with the number of entries in the pool, until the bot writes today's result.
+6. **Footer:**
    - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, the winner must follow the account.
    - "Not affiliated with Instagram or Meta."
 
@@ -101,6 +105,10 @@ The pool size on today's row counts entries with `drawDate: null` from the last 
 Don't change these shapes without updating the bot.
 
 Both repos must use the same database: the one named in `MONGODB_URI`, or `repost_bingo` if the connection string doesn't name one.
+
+**Draw time and `draws.date`.** The bot runs the draw every night at 00:00 UK time (Europe/London).
+- Recommended: give each draw the `date` of the day whose entries were drawn, which is the day that just ended. The draw at 00:00 on 10 November then has `date: "2026-11-09"`. The history reads naturally that way: "Today: Draw tonight at 00:00", then the result under "Yesterday".
+- The "Last night's winner" card works either way: it shows the newest result dated today or earlier.
 
 | Collection | Shape | Written by | Read by |
 | --- | --- | --- | --- |
@@ -177,10 +185,10 @@ bun run build
 
 Use `bun run test`, not `bun test`: the tests use Vitest, and `bun test` would start Bun's own test runner instead. `bun run test` runs:
 
-- Unit tests for link validation and normalisation, usernames, London dates and formatting.
+- Unit tests for link validation and normalisation, usernames, London dates, the midnight countdown (including the nights the clocks change) and formatting.
 - Unit tests for the Instagram owner check (embed page, post-page fallback, rate limits and login walls), using a fake `fetch`.
 - Integration tests for the entries API: the shared shape, the owner check, duplicates, rate limiting and Turnstile.
-- Integration tests for the history and "Who's in" readers, including badly formed documents.
+- Integration tests for the history, "Who's in" and last night's winner readers, including badly formed documents.
 
 The first run downloads a MongoDB binary (about 120 MB). The build does not need a database.
 

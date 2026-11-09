@@ -52,7 +52,7 @@ export async function DrawHistory() {
               </p>
               <p className="draw__count">{formatEntryCount(pending.poolSize)} in the pool</p>
               <p className="draw__status">
-                <span className="pill">Draw at {DRAW_TIME_LABEL}</span>
+                <span className="pill">Draw tonight at {DRAW_TIME_LABEL}</span>
               </p>
             </div>
           </li>

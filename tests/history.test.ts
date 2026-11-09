@@ -1,6 +1,6 @@
 import type { Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { countPool, loadHistory, loadPool, toSummary } from "@/lib/history";
+import { countPool, loadHistory, loadLatestDraw, loadPool, toSummary } from "@/lib/history";
 import { startTestMongo } from "./support/mongo";
 
 let mongo: Awaited<ReturnType<typeof startTestMongo>>;
@@ -39,7 +39,7 @@ async function seed(db: Db, draws: object[], entries: object[] = []) {
 }
 
 describe("draw history", () => {
-  it("shows 'Draw at 12:00' for today until the bot writes the result", async () => {
+  it("shows today's draw as pending until the bot writes the result", async () => {
     const db = mongo.freshDb();
     await seed(db, [botDraw("2026-11-07"), botDraw("2026-11-08")]);
 
@@ -48,7 +48,7 @@ describe("draw history", () => {
     expect(morning.pending).toEqual({ date: "2026-11-09", poolSize: 0 });
     expect(morning.draws.map((d) => d.date)).toEqual(["2026-11-08", "2026-11-07"]);
 
-    // Still pending after 12:00 if the bot hasn't written today's result yet.
+    // Still pending later in the day if the bot hasn't written today's result yet.
     expect((await loadHistory(db, new Date("2026-11-09T12:30:00Z"))).pending).not.toBeNull();
 
     await seed(db, [botDraw("2026-11-09")]);
@@ -198,5 +198,24 @@ describe("who's in (the current pool)", () => {
 
   it("is empty when nobody has entered", async () => {
     expect(await loadPool(mongo.freshDb(), now)).toEqual({ total: 0, entries: [] });
+  });
+});
+
+describe("last night's winner", () => {
+  it("is the most recent result dated today or earlier", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [botDraw("2026-11-07"), botDraw("2026-11-08", { winnerUsername: "last.night" }), botDraw("2026-11-12")]);
+    const latest = await loadLatestDraw(db, new Date("2026-11-09T10:00:00Z"));
+    expect(latest).toMatchObject({ date: "2026-11-08", winnerUsername: "last.night" });
+  });
+
+  it("skips a badly formed newest document", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [botDraw("2026-11-07", { winnerUsername: "good.one" }), { ...botDraw("2026-11-08"), date: "8 Nov" }]);
+    expect((await loadLatestDraw(db, new Date("2026-11-09T10:00:00Z")))?.winnerUsername).toBe("good.one");
+  });
+
+  it("is null before the first draw", async () => {
+    expect(await loadLatestDraw(mongo.freshDb(), new Date("2026-11-09T10:00:00Z"))).toBeNull();
   });
 });

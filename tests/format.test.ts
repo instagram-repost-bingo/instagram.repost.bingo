@@ -7,6 +7,7 @@ import {
   formatShortDate,
   monthAbbrev,
   relativeDayLabel,
+  splitCountdown,
 } from "@/lib/format";
 
 describe("format helpers", () => {
@@ -32,7 +33,14 @@ describe("format helpers", () => {
   it("names the owner and explains the draw after a successful entry", () => {
     const message = entryAcceptedMessage("slashie.app");
     expect(message).toContain("@slashie.app");
-    expect(message).toContain("12:00 UK time");
+    expect(message).toContain("00:00 UK time");
     expect(message).toContain("7 days");
+  });
+
+  it("splits the countdown into hours, minutes and seconds", () => {
+    expect(splitCountdown((7 * 3600 + 12 * 60 + 5) * 1000 + 999)).toEqual({ hours: "07", minutes: "12", seconds: "05" });
+    expect(splitCountdown(24 * 3600 * 1000)).toEqual({ hours: "24", minutes: "00", seconds: "00" });
+    expect(splitCountdown(0)).toEqual({ hours: "00", minutes: "00", seconds: "00" });
+    expect(splitCountdown(-5000)).toEqual({ hours: "00", minutes: "00", seconds: "00" });
   });
 });

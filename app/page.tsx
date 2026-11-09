@@ -1,7 +1,9 @@
 import { Suspense } from "react";
 import { BingoBall } from "@/components/BingoBall";
+import { Countdown } from "@/components/Countdown";
 import { DrawHistory, DrawHistorySkeleton } from "@/components/DrawHistory";
 import { EntryForm } from "@/components/EntryForm";
+import { LastWinner, LastWinnerSkeleton } from "@/components/LastWinner";
 import { WhoIsIn, WhoIsInSkeleton } from "@/components/WhoIsIn";
 import {
   DRAW_TIME_LABEL,
@@ -29,58 +31,71 @@ export default function Home() {
       </a>
 
       <main className="page">
-        <div className="layout">
-          <div className="layout__main">
-            <header className="hero">
-              <div className="hero__balls" aria-hidden="true">
-                {HERO_BALLS.map((ball) => (
-                  <BingoBall
-                    key={ball.letter}
-                    label={ball.number}
-                    caption={ball.letter}
-                    tone={ball.tone}
-                    size="lg"
-                    className="hero__ball"
-                  />
-                ))}
-              </div>
+        <div className="layout__row layout__row--top">
+          <header className="hero">
+            <div className="hero__balls" aria-hidden="true">
+              {HERO_BALLS.map((ball) => (
+                <BingoBall
+                  key={ball.letter}
+                  label={ball.number}
+                  caption={ball.letter}
+                  tone={ball.tone}
+                  size="lg"
+                  className="hero__ball"
+                />
+              ))}
+            </div>
 
-              <h1 className="wordmark">
-                repost<span className="wordmark__dot">.</span>bingo
-              </h1>
+            <h1 className="wordmark">
+              repost<span className="wordmark__dot">.</span>bingo
+            </h1>
 
-              <ol className="steps" aria-label="How it works">
-                <li className="steps__item">
-                  <BingoBall label="1" size="sm" tone="ink" />
-                  <span>
-                    Follow <strong>@{INSTAGRAM_HANDLE}</strong>.
-                  </span>
-                </li>
-                <li className="steps__item">
-                  <BingoBall label="2" size="sm" tone="ink" />
-                  <span>Paste your post link.</span>
-                </li>
-                <li className="steps__item">
-                  <BingoBall label="3" size="sm" tone="ink" />
-                  <span>One random post gets reposted every day, with credit.</span>
-                </li>
-              </ol>
-
-              <a className="button button--ink hero__follow" href={INSTAGRAM_PROFILE_URL}>
-                Follow @{INSTAGRAM_HANDLE}
-                <span aria-hidden="true" className="button__arrow">
-                  &rarr;
+            <ol className="steps" aria-label="How it works">
+              <li className="steps__item">
+                <BingoBall label="1" size="sm" tone="ink" />
+                <span>
+                  Follow <strong>@{INSTAGRAM_HANDLE}</strong>.
                 </span>
-              </a>
-            </header>
+              </li>
+              <li className="steps__item">
+                <BingoBall label="2" size="sm" tone="ink" />
+                <span>Paste your post link.</span>
+              </li>
+              <li className="steps__item">
+                <BingoBall label="3" size="sm" tone="ink" />
+                <span>One random post gets reposted every day, with credit.</span>
+              </li>
+            </ol>
 
-            <section id="enter" className="card entry" aria-labelledby="enter-heading">
-              <h2 id="enter-heading" className="section-title">
-                Enter the draw
-              </h2>
-              <EntryForm turnstileSiteKey={turnstileSiteKey} />
-            </section>
-          </div>
+            <a className="button button--ink hero__follow" href={INSTAGRAM_PROFILE_URL}>
+              Follow @{INSTAGRAM_HANDLE}
+              <span aria-hidden="true" className="button__arrow">
+                &rarr;
+              </span>
+            </a>
+          </header>
+
+          <section className="draw-panel" aria-label="Tonight's draw">
+            <div className="draw-panel__next">
+              <h2 className="draw-panel__title">Next draw in</h2>
+              <Countdown />
+              <p className="draw-panel__note">Every night at {DRAW_TIME_LABEL} UK time.</p>
+            </div>
+            <div className="draw-panel__last">
+              <Suspense fallback={<LastWinnerSkeleton />}>
+                <LastWinner />
+              </Suspense>
+            </div>
+          </section>
+        </div>
+
+        <div className="layout__row">
+          <section id="enter" className="card entry" aria-labelledby="enter-heading">
+            <h2 id="enter-heading" className="section-title">
+              Enter the draw
+            </h2>
+            <EntryForm turnstileSiteKey={turnstileSiteKey} />
+          </section>
 
           <div className="layout__side">
             <section className="pool" aria-labelledby="pool-heading">
@@ -98,7 +113,7 @@ export default function Home() {
                   Draw history
                 </h2>
                 <p className="history__sub">
-                  One draw a day at {DRAW_TIME_LABEL} UK time.
+                  One draw a night, at {DRAW_TIME_LABEL} UK time.
                 </p>
               </div>
               <Suspense fallback={<DrawHistorySkeleton />}>
@@ -114,7 +129,7 @@ export default function Home() {
           <h2 className="footer__title">The rules</h2>
           <ul className="rules">
             <li>Free to enter.</li>
-            <li>One draw a day, at {DRAW_TIME_LABEL} UK time.</li>
+            <li>One draw a day, at midnight ({DRAW_TIME_LABEL} UK time).</li>
             <li>Posts that aren&apos;t picked stay in the pool for {POOL_DAYS} days.</li>
             <li>The prize is a repost with credit. Nothing else.</li>
             <li>The winner must follow @{INSTAGRAM_HANDLE}.</li>

@@ -7,11 +7,11 @@ export const INSTAGRAM_HANDLE = "insta.repost.bingo";
 export const INSTAGRAM_PROFILE_URL = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
 
 /**
- * The bot (a separate repo) runs the draw at 12:00 in this time zone. The site
- * only uses it to work out which date is "today" in the history list.
+ * The bot (a separate repo) runs the draw every night at 00:00 in this time
+ * zone. The site uses it for "today" in the history and for the countdown.
  */
 export const DRAW_TIME_ZONE = "Europe/London";
-export const DRAW_TIME_LABEL = "12:00";
+export const DRAW_TIME_LABEL = "00:00";
 
 /** Unpicked entries stay in the pool this long (the bot enforces it; the site shows the pool size). */
 export const POOL_DAYS = 7;

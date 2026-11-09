@@ -58,5 +58,16 @@ export function formatEntryCount(count: number): string {
 
 /** Copy shown after a successful entry, naming the owner we found on Instagram. */
 export function entryAcceptedMessage(username: string): string {
-  return `You're in, @${username}! The draw is every day at ${DRAW_TIME_LABEL} UK time, and your post stays in the pool for ${POOL_DAYS} days. Good luck!`;
+  return `You're in, @${username}! The draw is every night at ${DRAW_TIME_LABEL} UK time, and your post stays in the pool for ${POOL_DAYS} days. Good luck!`;
+}
+
+/** Splits a duration into zero-padded hours, minutes and seconds for the countdown. */
+export function splitCountdown(ms: number): { hours: string; minutes: string; seconds: string } {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return {
+    hours: pad(Math.floor(total / 3600)),
+    minutes: pad(Math.floor((total % 3600) / 60)),
+    seconds: pad(total % 60),
+  };
 }

@@ -16,7 +16,7 @@ export interface DrawSummary {
 
 export interface HistoryData {
   today: DateKey;
-  /** Set while today's result isn't in yet ("Draw at 12:00"). */
+  /** Set while today's result isn't in yet ("Draw tonight at 00:00"). */
   pending: { date: DateKey; poolSize: number } | null;
   /** Results written by the bot, newest first. */
   draws: DrawSummary[];
@@ -43,6 +43,20 @@ export async function loadHistory(
     pending: drawnToday ? null : { date: today, poolSize: await countPool(db, now) },
     draws,
   };
+}
+
+/** The most recent valid result the bot has written (dated today or earlier). */
+export async function loadLatestDraw(db: Db, now: Date): Promise<DrawSummary | null> {
+  const docs = await drawsCollection(db)
+    .find({ date: { $lte: londonDateKey(now) } }, { projection: { _id: 0 } })
+    .sort({ date: -1 })
+    .limit(5)
+    .toArray();
+  for (const doc of docs) {
+    const summary = toSummary(doc);
+    if (summary) return summary;
+  }
+  return null;
 }
 
 /** Entries currently in the pool: not picked yet and entered in the last 7 days. */
