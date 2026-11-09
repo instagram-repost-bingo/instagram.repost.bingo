@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { databaseNameFromUri } from "@/lib/mongodb";
+import { DEFAULT_DB_NAME, databaseNameFromUri, resolveDatabaseName } from "@/lib/mongodb";
+
+describe("resolveDatabaseName", () => {
+  it("uses the database named in the connection string", () => {
+    expect(resolveDatabaseName("mongodb+srv://u:p@cluster.l6a04mp.mongodb.net/shared_db?retryWrites=true")).toBe(
+      "shared_db",
+    );
+  });
+
+  it("falls back to repost_bingo (not the driver's 'test') when the string has no database", () => {
+    expect(DEFAULT_DB_NAME).toBe("repost_bingo");
+    expect(resolveDatabaseName("mongodb+srv://u:p@cluster.l6a04mp.mongodb.net")).toBe("repost_bingo");
+    expect(resolveDatabaseName("mongodb+srv://u:p@cluster.l6a04mp.mongodb.net/?retryWrites=true")).toBe("repost_bingo");
+  });
+});
 
 describe("databaseNameFromUri", () => {
   it.each<[string, string | null]>([

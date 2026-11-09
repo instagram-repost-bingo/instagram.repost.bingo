@@ -36,16 +36,27 @@ export function getMongoClient(): MongoClient {
   return globalForMongo.__repostBingoMongoClient;
 }
 
+/** Used when MONGODB_URI doesn't name a database. The bot must use the same one. */
+export const DEFAULT_DB_NAME = "repost_bingo";
+
+let warnedAboutDefault = false;
+
 /**
- * The shared database (the same one the bot uses), named in the MONGODB_URI
- * path, e.g. mongodb+srv://user:pass@cluster.mongodb.net/repost_bingo?retryWrites=true.
- * Without a name the driver would silently use "test", so that is an error here.
+ * The shared database (the same one the bot uses): the name in the MONGODB_URI
+ * path if there is one, e.g. mongodb+srv://user:pass@cluster.mongodb.net/repost_bingo,
+ * otherwise DEFAULT_DB_NAME (never the driver's own default, "test").
  */
+export function resolveDatabaseName(uri: string): string {
+  return databaseNameFromUri(uri) ?? DEFAULT_DB_NAME;
+}
+
 export function getDb(): Db {
-  const name = databaseNameFromUri(requireUri());
-  if (!name) {
-    throw new Error(
-      "MONGODB_URI has no database name. Add it after the host, e.g. ...mongodb.net/repost_bingo?retryWrites=true, and use the same database as the bot.",
+  const uri = requireUri();
+  const name = resolveDatabaseName(uri);
+  if (!databaseNameFromUri(uri) && !warnedAboutDefault) {
+    warnedAboutDefault = true;
+    console.warn(
+      `[db] MONGODB_URI has no database name, so using "${DEFAULT_DB_NAME}". The bot must use the same database.`,
     );
   }
   return getMongoClient().db(name);

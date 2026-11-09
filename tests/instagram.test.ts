@@ -102,6 +102,11 @@ describe("link normalisation", () => {
     ["https://www.instagram.com/reels/C9-kL2mNoPq/", "https://www.instagram.com/reel/C9-kL2mNoPq"],
     // Trims whitespace around a pasted link.
     ["  https://www.instagram.com/p/DAbc123xYz_/ \n", "https://www.instagram.com/p/DAbc123xYz_"],
+    // A real link from Instagram's web share sheet.
+    [
+      "https://www.instagram.com/p/DfiOsp6t354/?utm_source=ig_web_button_share_sheet&rpxt=MzRlODBiNWFlZA==",
+      "https://www.instagram.com/p/DfiOsp6t354",
+    ],
   ])("%s -> %s", (input, expected) => {
     expect(normalise(input).url).toBe(expected);
   });
@@ -139,6 +144,7 @@ describe("username validation", () => {
   it.each<[string, string]>([
     ["someone", "someone"],
     ["@someone", "someone"],
+    ["slashie.app", "slashie.app"],
     ["  @Some.One_99  ", "some.one_99"],
     ["SOMEONE", "someone"],
     ["a", "a"],

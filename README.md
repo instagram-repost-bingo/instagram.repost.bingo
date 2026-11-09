@@ -88,6 +88,8 @@ The pool size on today's row counts entries with `drawDate: null` from the last 
 
 Don't change these shapes without updating the bot.
 
+Both repos must use the same database: the one named in `MONGODB_URI`, or `repost_bingo` if the connection string doesn't name one.
+
 | Collection | Shape | Written by | Read by |
 | --- | --- | --- | --- |
 | `entries` | `{ url (unique), username, createdAt, drawDate \| null }` | website (inserts with `drawDate: null`) | bot |
@@ -134,7 +136,7 @@ bun install
 cp .env.example .env.local
 ```
 
-Set `MONGODB_URI` in `.env.local`, with the database name in the path. Turnstile is optional locally. Leave its keys empty, or use Cloudflare's test keys listed in `.env.example`.
+Set `MONGODB_URI` in `.env.local`. Turnstile is optional locally. Leave its keys empty, or use Cloudflare's test keys listed in `.env.example`.
 
 ```bash
 bun run dev
@@ -172,7 +174,7 @@ The first run downloads a MongoDB binary (about 120 MB). The build does not need
 
 | Name | Required | What it is |
 | --- | --- | --- |
-| `MONGODB_URI` | Yes | Atlas connection string for the database the bot uses, with the database name in the path: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/repost_bingo?retryWrites=true&w=majority`. Without a database name the site won't connect (entries get an error and the history shows a notice), so it can never write to the driver's default `test` database by accident. |
+| `MONGODB_URI` | Yes | Atlas connection string for the cluster the bot uses. The database is the name in the path (`...mongodb.net/<name>?...`). If there's no name, the site uses `repost_bingo` (never the driver's default, `test`) and logs a warning. Either way, the bot must use the same database. |
 | `TURNSTILE_SITE_KEY` | Yes (production) | Turnstile site key (public). It is built into the page, so redeploy after changing it. |
 | `TURNSTILE_SECRET_KEY` | Yes (production) | Turnstile secret key. It is used to verify tokens, and also as the key for hashing IP addresses in the rate limiter. |
 
