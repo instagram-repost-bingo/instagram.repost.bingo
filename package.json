@@ -1,0 +1,36 @@
+{
+  "name": "repost-bingo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "repost.bingo: paste your Instagram post link, one random post gets reposted every day.",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@vercel/functions": "3.11.1",
+    "mongodb": "7.8.0",
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.5",
+    "mongodb-memory-server": "11.3.0",
+    "typescript": "^5",
+    "vitest": "5.1.0"
+  }
+}
