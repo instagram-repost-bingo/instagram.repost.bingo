@@ -2,6 +2,7 @@ import type { Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { handleCreateEntry, type CreateEntryDeps } from "@/lib/api/create-entry";
 import { SUBMIT_RATE_LIMIT } from "@/lib/config";
+import type { OwnerLookup } from "@/lib/instagram-owner";
 import type { TurnstileVerifier } from "@/lib/turnstile";
 import { startTestMongo } from "./support/mongo";
 
@@ -15,6 +16,7 @@ afterAll(async () => {
 
 const NOW = new Date("2026-11-09T10:00:00Z");
 const passTurnstile = vi.fn<TurnstileVerifier>(async () => ({ success: true, errorCodes: [] }));
+const ownerIs = (username: string) => vi.fn<OwnerLookup>(async () => ({ ok: true, username }));
 
 function deps(db: Db, overrides: Partial<CreateEntryDeps> = {}): CreateEntryDeps {
   return {
@@ -22,6 +24,7 @@ function deps(db: Db, overrides: Partial<CreateEntryDeps> = {}): CreateEntryDeps
     verifyTurnstile: passTurnstile,
     requireTurnstile: true,
     rateLimitSecret: "test-secret",
+    lookupOwner: ownerIs("slashie.app"),
     now: () => NOW,
     ...overrides,
   };
@@ -38,46 +41,86 @@ function submit(
   });
 }
 
-const entry = (url: string, username = "@Some.Creator") => ({ url, username, turnstileToken: "token" });
+const entry = (url: string) => ({ url, turnstileToken: "token" });
 
 describe("POST /api/entries", () => {
-  it("stores exactly the shared shape: { url, username, createdAt, drawDate: null }", async () => {
+  it("stores the shared shape, with the username Instagram says owns the post", async () => {
     const db = mongo.freshDb();
+    const lookupOwner = ownerIs("slashie.app");
     const response = await handleCreateEntry(
-      submit(entry("https://WWW.Instagram.com/reel/C9-kL2mNoPq/?igsh=abc")),
-      deps(db),
+      submit(entry("https://www.instagram.com/p/DfiOsp6t354/?utm_source=ig_web_button_share_sheet&rpxt=MzRlODBiNWFlZA==")),
+      deps(db, { lookupOwner }),
     );
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       ok: true,
-      entry: { url: "https://www.instagram.com/reel/C9-kL2mNoPq", username: "some.creator" },
+      entry: { url: "https://www.instagram.com/p/DfiOsp6t354", username: "slashie.app" },
     });
+    expect(body.message).toContain("@slashie.app");
+    expect(lookupOwner).toHaveBeenCalledWith(expect.objectContaining({ shortcode: "DfiOsp6t354" }));
 
     const docs = await db.collection("entries").find({}).toArray();
     expect(docs).toHaveLength(1);
     const { _id, ...stored } = docs[0];
     expect(_id).toBeDefined();
     expect(stored).toEqual({
-      url: "https://www.instagram.com/reel/C9-kL2mNoPq",
-      username: "some.creator",
+      url: "https://www.instagram.com/p/DfiOsp6t354",
+      username: "slashie.app",
       createdAt: NOW,
       drawDate: null,
     });
   });
 
-  it("creates a unique index on the normalised url", async () => {
+  it("ignores a username sent by the client", async () => {
     const db = mongo.freshDb();
-    await handleCreateEntry(submit(entry("https://www.instagram.com/p/DAbc123xYz_/")), deps(db));
-    const indexes = await db.collection("entries").indexes();
-    expect(indexes.find((index) => index.key.url === 1)?.unique).toBe(true);
+    await handleCreateEntry(
+      submit({ ...entry("https://www.instagram.com/p/DfiOsp6t354/"), username: "someone.else" }),
+      deps(db),
+    );
+    expect((await db.collection("entries").findOne({}))?.username).toBe("slashie.app");
   });
 
-  it("rejects duplicates, including other link formats for the same post", async () => {
+  it("rejects posts Instagram can't show publicly (missing, deleted or private)", async () => {
     const db = mongo.freshDb();
-    const first = await handleCreateEntry(submit(entry("https://www.instagram.com/p/C9-kL2mNoPq/")), deps(db));
-    expect(first.status).toBe(201);
+    const response = await handleCreateEntry(
+      submit(entry("https://www.instagram.com/p/DfiOsp6t354/")),
+      deps(db, { lookupOwner: vi.fn<OwnerLookup>(async () => ({ ok: false, reason: "not_public" })) }),
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: "not_public", message: expect.stringContaining("public") });
+    expect(await db.collection("entries").countDocuments()).toBe(0);
+  });
 
+  it("asks people to try again when Instagram doesn't answer", async () => {
+    const db = mongo.freshDb();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const response = await handleCreateEntry(
+      submit(entry("https://www.instagram.com/p/DfiOsp6t354/")),
+      deps(db, { lookupOwner: vi.fn<OwnerLookup>(async () => ({ ok: false, reason: "unavailable" })) }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "instagram_unavailable" });
+    expect(await db.collection("entries").countDocuments()).toBe(0);
+    warn.mockRestore();
+  });
+
+  it("rejects posts by the repost.bingo account itself", async () => {
+    const db = mongo.freshDb();
+    const response = await handleCreateEntry(
+      submit(entry("https://www.instagram.com/p/OurOwnPost1/")),
+      deps(db, { lookupOwner: ownerIs("insta.repost.bingo") }),
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: "own_post" });
+  });
+
+  it("rejects duplicates in any link format without asking Instagram again", async () => {
+    const db = mongo.freshDb();
+    expect((await handleCreateEntry(submit(entry("https://www.instagram.com/p/C9-kL2mNoPq/")), deps(db))).status).toBe(201);
+
+    const lookupOwner = ownerIs("slashie.app");
     for (const url of [
       "https://www.instagram.com/p/C9-kL2mNoPq/",
       "instagram.com/p/C9-kL2mNoPq?igsh=xyz",
@@ -85,10 +128,11 @@ describe("POST /api/entries", () => {
       "https://www.instagram.com/reel/C9-kL2mNoPq/",
       "https://www.instagram.com/tv/C9-kL2mNoPq",
     ]) {
-      const again = await handleCreateEntry(submit(entry(url, "other"), { ip: "198.51.100.1" }), deps(db));
+      const again = await handleCreateEntry(submit(entry(url), { ip: "198.51.100.1" }), deps(db, { lookupOwner }));
       expect(again.status, url).toBe(409);
-      expect(await again.json()).toMatchObject({ ok: false, code: "duplicate", field: "url" });
+      expect(await again.json()).toMatchObject({ ok: false, code: "duplicate" });
     }
+    expect(lookupOwner).not.toHaveBeenCalled();
     expect(await db.collection("entries").countDocuments()).toBe(1);
   });
 
@@ -96,66 +140,50 @@ describe("POST /api/entries", () => {
     const db = mongo.freshDb();
     const responses = await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
-        handleCreateEntry(
-          submit(entry("https://www.instagram.com/p/RaceCondition1/"), { ip: `198.51.100.${i + 1}` }),
-          deps(db),
-        ),
+        handleCreateEntry(submit(entry("https://www.instagram.com/p/RaceCondition1/"), { ip: `198.51.100.${i + 1}` }), deps(db)),
       ),
     );
     expect(responses.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409]);
     expect(await db.collection("entries").countDocuments()).toBe(1);
   });
 
-  it("rejects links that aren't Instagram posts, pointing at the link field", async () => {
+  it("rejects links that aren't Instagram posts", async () => {
     const db = mongo.freshDb();
+    const lookupOwner = ownerIs("slashie.app");
     const response = await handleCreateEntry(
       submit(entry("https://www.instagram.com/stories/someone/123/")),
-      deps(db),
+      deps(db, { lookupOwner }),
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
-      ok: false,
       code: "invalid_url",
-      field: "url",
       message: expect.stringContaining("/p/, /reel/ or /tv/"),
     });
-    expect(await db.collection("entries").countDocuments()).toBe(0);
-  });
-
-  it("rejects a missing or invalid username, pointing at the username field", async () => {
-    const db = mongo.freshDb();
-    for (const username of ["", "not a username", "x".repeat(31)]) {
-      const response = await handleCreateEntry(
-        submit(entry("https://www.instagram.com/p/DAbc123xYz_/", username)),
-        deps(db),
-      );
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ code: "invalid_username", field: "username" });
-    }
-    expect(await db.collection("entries").countDocuments()).toBe(0);
+    expect(lookupOwner).not.toHaveBeenCalled();
   });
 
   it("rejects bad request bodies", async () => {
     const db = mongo.freshDb();
     expect((await handleCreateEntry(submit("{not json"), deps(db))).status).toBe(400);
     expect(
-      (await handleCreateEntry(submit("url=x", { contentType: "application/x-www-form-urlencoded" }), deps(db)))
-        .status,
+      (await handleCreateEntry(submit("url=x", { contentType: "application/x-www-form-urlencoded" }), deps(db))).status,
     ).toBe(415);
     const huge = JSON.stringify(entry(`https://www.instagram.com/p/A/?x=${"a".repeat(9000)}`));
     expect((await handleCreateEntry(submit(huge), deps(db))).status).toBe(413);
   });
 
   describe("Turnstile", () => {
-    it("rejects the entry when the check fails", async () => {
+    it("rejects the entry, without asking Instagram, when the check fails", async () => {
       const db = mongo.freshDb();
       const failing = vi.fn<TurnstileVerifier>(async () => ({ success: false, errorCodes: ["invalid-input-response"] }));
+      const lookupOwner = ownerIs("slashie.app");
       const response = await handleCreateEntry(
-        submit(entry("https://www.instagram.com/p/DAbc123xYz_/")),
-        deps(db, { verifyTurnstile: failing }),
+        submit(entry("https://www.instagram.com/p/DfiOsp6t354/")),
+        deps(db, { verifyTurnstile: failing, lookupOwner }),
       );
       expect(response.status).toBe(403);
       expect(failing).toHaveBeenCalledWith("token", "203.0.113.7");
+      expect(lookupOwner).not.toHaveBeenCalled();
       expect(await db.collection("entries").countDocuments()).toBe(0);
     });
 
@@ -163,7 +191,7 @@ describe("POST /api/entries", () => {
       const db = mongo.freshDb();
       const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
       const response = await handleCreateEntry(
-        submit(entry("https://www.instagram.com/p/DAbc123xYz_/")),
+        submit(entry("https://www.instagram.com/p/DfiOsp6t354/")),
         deps(db, { verifyTurnstile: null, requireTurnstile: true }),
       );
       expect(response.status).toBe(503);
@@ -174,7 +202,7 @@ describe("POST /api/entries", () => {
     it("skips the check in local development when no secret is configured", async () => {
       const db = mongo.freshDb();
       const response = await handleCreateEntry(
-        submit({ url: "https://www.instagram.com/p/DAbc123xYz_/", username: "someone" }),
+        submit({ url: "https://www.instagram.com/p/DfiOsp6t354/" }),
         deps(db, { verifyTurnstile: null, requireTurnstile: false }),
       );
       expect(response.status).toBe(201);
@@ -184,16 +212,15 @@ describe("POST /api/entries", () => {
   it("rate limits each IP, counting every attempt", async () => {
     const db = mongo.freshDb();
     for (let i = 0; i < SUBMIT_RATE_LIMIT.limit; i++) {
-      const response = await handleCreateEntry(submit(entry("nope")), deps(db));
-      expect(response.status).toBe(400);
+      expect((await handleCreateEntry(submit(entry("nope")), deps(db))).status).toBe(400);
     }
-    const blocked = await handleCreateEntry(submit(entry("https://www.instagram.com/p/DAbc123xYz_/")), deps(db));
+    const blocked = await handleCreateEntry(submit(entry("https://www.instagram.com/p/DfiOsp6t354/")), deps(db));
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await db.collection("entries").countDocuments()).toBe(0);
 
     const otherIp = await handleCreateEntry(
-      submit(entry("https://www.instagram.com/p/DAbc123xYz_/"), { ip: "198.51.100.9" }),
+      submit(entry("https://www.instagram.com/p/DfiOsp6t354/"), { ip: "198.51.100.9" }),
       deps(db),
     );
     expect(otherIp.status).toBe(201);
@@ -213,7 +240,7 @@ describe("POST /api/entries", () => {
 
   it("never stores raw IP addresses", async () => {
     const db = mongo.freshDb();
-    await handleCreateEntry(submit(entry("https://www.instagram.com/p/DAbc123xYz_/")), deps(db));
+    await handleCreateEntry(submit(entry("https://www.instagram.com/p/DfiOsp6t354/")), deps(db));
     const counters = await db.collection("rate_limits").find({}).toArray();
     expect(counters).toHaveLength(1);
     expect(JSON.stringify(counters)).not.toContain("203.0.113.7");
@@ -222,7 +249,7 @@ describe("POST /api/entries", () => {
 
   it("answers 503 when the database is unavailable", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    const response = await handleCreateEntry(submit(entry("https://www.instagram.com/p/DAbc123xYz_/")), {
+    const response = await handleCreateEntry(submit(entry("https://www.instagram.com/p/DfiOsp6t354/")), {
       ...deps(mongo.freshDb()),
       getDb: () => {
         throw new Error("connection refused");

@@ -1,16 +1,12 @@
 import "server-only";
 import type { Db } from "mongodb";
 import { ensureIndexesOnce } from "../collections";
-import { SUBMIT_RATE_LIMIT } from "../config";
-import { createEntry } from "../entries";
-import { ENTRY_ACCEPTED_MESSAGE } from "../format";
+import { INSTAGRAM_HANDLE, SUBMIT_RATE_LIMIT } from "../config";
+import { createEntry, isAlreadyEntered } from "../entries";
+import { entryAcceptedMessage } from "../format";
 import { clientIp, jsonResponse } from "../http";
-import {
-  describeLinkFailure,
-  describeUsernameFailure,
-  parseInstagramPostUrl,
-  parseInstagramUsername,
-} from "../instagram";
+import { describeLinkFailure, parseInstagramPostUrl } from "../instagram";
+import type { OwnerLookup } from "../instagram-owner";
 import { consumeRateLimit, hashSubject, rateLimitSubject } from "../rate-limit";
 import type { TurnstileVerifier } from "../turnstile";
 
@@ -22,6 +18,8 @@ export interface CreateEntryDeps {
   requireTurnstile: boolean;
   /** Key for hashing IP addresses in the rate limiter. */
   rateLimitSecret: string | undefined;
+  /** Reads the post's owner from Instagram (see lib/instagram-owner.ts). */
+  lookupOwner: OwnerLookup;
   now?: () => Date;
 }
 
@@ -31,19 +29,22 @@ export type CreateEntryErrorCode =
   | "invalid_json"
   | "rate_limited"
   | "invalid_url"
-  | "invalid_username"
   | "bot_check_failed"
   | "duplicate"
+  | "not_public"
+  | "own_post"
+  | "instagram_unavailable"
   | "unavailable";
-
-type Field = "url" | "username";
 
 const MAX_BODY_BYTES = 8 * 1024;
 
 /**
- * POST /api/entries with JSON { url, username, turnstileToken }.
- * Order: cheap request checks, per-IP rate limit (counts every attempt),
- * validation, Turnstile, then the insert.
+ * POST /api/entries with JSON { url, turnstileToken }.
+ *
+ * The username isn't typed in: it is the post's owner, read from Instagram.
+ * Order: cheap request checks, per-IP rate limit (counts every attempt), link
+ * validation, Turnstile, duplicate check, the Instagram owner lookup, then the
+ * insert. Bots and duplicates never cause a request to Instagram.
  */
 export async function handleCreateEntry(request: Request, deps: CreateEntryDeps): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -80,7 +81,7 @@ export async function handleCreateEntry(request: Request, deps: CreateEntryDeps)
     const limit = await consumeRateLimit(db, bucket, SUBMIT_RATE_LIMIT, now);
     if (!limit.allowed) {
       return errorResponse(429, "rate_limited", "That's a lot of tries. Please wait a few minutes and try again.", {
-        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        "Retry-After": String(limit.retryAfterSeconds),
       });
     }
   } catch (error) {
@@ -89,13 +90,7 @@ export async function handleCreateEntry(request: Request, deps: CreateEntryDeps)
   }
 
   const link = parseInstagramPostUrl(body.url);
-  if (!link.ok) {
-    return errorResponse(400, "invalid_url", describeLinkFailure(link.reason), { field: "url" });
-  }
-  const user = parseInstagramUsername(body.username);
-  if (!user.ok) {
-    return errorResponse(400, "invalid_username", describeUsernameFailure(user.reason), { field: "username" });
-  }
+  if (!link.ok) return errorResponse(400, "invalid_url", describeLinkFailure(link.reason));
 
   if (deps.verifyTurnstile) {
     const check = await deps.verifyTurnstile(body.turnstileToken, ip);
@@ -105,13 +100,43 @@ export async function handleCreateEntry(request: Request, deps: CreateEntryDeps)
   }
 
   try {
-    const result = await createEntry(db, link.post, user.username, now);
-    if (!result.ok) {
-      return errorResponse(409, "duplicate", "That post has already been entered. Each post can only go in once.", {
-        field: "url",
-      });
+    if (await isAlreadyEntered(db, link.post)) return duplicate();
+  } catch (error) {
+    console.error("[entries] duplicate check failed", error);
+    return unavailable();
+  }
+
+  const owner = await deps.lookupOwner(link.post);
+  if (!owner.ok) {
+    if (owner.reason === "not_public") {
+      return errorResponse(
+        422,
+        "not_public",
+        "We couldn't open that post on Instagram. Check the link is right and that your account is public.",
+      );
     }
-    return jsonResponse({ ok: true, message: ENTRY_ACCEPTED_MESSAGE, entry: { url: link.post.url, username: user.username } }, 201);
+    console.warn(`[entries] Instagram didn't answer for ${link.post.url}`);
+    return errorResponse(
+      503,
+      "instagram_unavailable",
+      "We couldn't check your post with Instagram just now. Please try again in a few minutes.",
+    );
+  }
+  if (owner.username === INSTAGRAM_HANDLE) {
+    return errorResponse(422, "own_post", "That's one of our own posts. Paste a link to one of yours.");
+  }
+
+  try {
+    const result = await createEntry(db, link.post, owner.username, now);
+    if (!result.ok) return duplicate();
+    return jsonResponse(
+      {
+        ok: true,
+        message: entryAcceptedMessage(owner.username),
+        entry: { url: link.post.url, username: owner.username },
+      },
+      201,
+    );
   } catch (error) {
     console.error("[entries] insert failed", error);
     return unavailable();
@@ -122,13 +147,17 @@ function errorResponse(
   status: number,
   code: CreateEntryErrorCode,
   message: string,
-  extra: { field?: Field; headers?: Record<string, string> } = {},
+  headers?: Record<string, string>,
 ): Response {
-  return jsonResponse({ ok: false, code, message, field: extra.field }, status, extra.headers);
+  return jsonResponse({ ok: false, code, message }, status, headers);
+}
+
+function duplicate(): Response {
+  return errorResponse(409, "duplicate", "That post has already been entered. Each post can only go in once.");
 }
 
 function tooLarge(): Response {
-  return errorResponse(413, "payload_too_large", "That's too much text. Paste just the post link and your username.");
+  return errorResponse(413, "payload_too_large", "That's too much text. Paste just the post link.");
 }
 
 function unavailable(): Response {

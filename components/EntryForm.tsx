@@ -2,36 +2,26 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
-import {
-  describeLinkFailure,
-  describeUsernameFailure,
-  parseInstagramPostUrl,
-  parseInstagramUsername,
-} from "@/lib/instagram";
+import { describeLinkFailure, parseInstagramPostUrl } from "@/lib/instagram";
 import { useTurnstile } from "./useTurnstile";
-
-type Field = "url" | "username";
 
 type Status =
   | { kind: "idle" }
   | { kind: "submitting" }
   | { kind: "success"; message: string }
-  | { kind: "error"; message: string; field?: Field };
+  | { kind: "error"; message: string };
 
 interface EntryResponse {
   ok?: boolean;
   message?: string;
-  field?: Field;
 }
 
 export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
   const router = useRouter();
   const linkRef = useRef<HTMLInputElement>(null);
-  const usernameRef = useRef<HTMLInputElement>(null);
   // Set synchronously, so a fast double tap can't send the entry twice.
   const inFlight = useRef(false);
   const [link, setLink] = useState("");
-  const [username, setUsername] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   const turnstileEnabled = Boolean(turnstileSiteKey);
@@ -42,9 +32,9 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
     reset: resetTurnstile,
   } = useTurnstile(turnstileSiteKey);
 
-  function showError(message: string, field?: Field) {
-    setStatus({ kind: "error", message, field });
-    (field === "username" ? usernameRef : linkRef).current?.focus();
+  function showError(message: string) {
+    setStatus({ kind: "error", message });
+    linkRef.current?.focus();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -52,10 +42,8 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
     if (inFlight.current) return;
 
     // Same validation as the server, for instant feedback.
-    const parsedLink = parseInstagramPostUrl(link);
-    if (!parsedLink.ok) return showError(describeLinkFailure(parsedLink.reason), "url");
-    const parsedUser = parseInstagramUsername(username);
-    if (!parsedUser.ok) return showError(describeUsernameFailure(parsedUser.reason), "username");
+    const parsed = parseInstagramPostUrl(link);
+    if (!parsed.ok) return showError(describeLinkFailure(parsed.reason));
 
     inFlight.current = true;
     setStatus({ kind: "submitting" });
@@ -72,18 +60,17 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
       const response = await fetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: link, username, turnstileToken }),
+        body: JSON.stringify({ url: link, turnstileToken }),
       });
       const data = (await response.json().catch(() => null)) as EntryResponse | null;
 
       if (response.ok && data?.ok) {
         setStatus({ kind: "success", message: data.message ?? "You're in!" });
         setLink("");
-        setUsername("");
-        // Refresh the server-rendered history so the pool count includes this entry.
+        // Refresh the server-rendered lists so this entry shows up.
         router.refresh();
       } else {
-        showError(data?.message ?? "Something went wrong. Please try again.", data?.field);
+        showError(data?.message ?? "Something went wrong. Please try again.");
       }
     } catch {
       showError("We couldn't reach repost.bingo. Check your connection and try again.");
@@ -94,7 +81,6 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
   }
 
   const submitting = status.kind === "submitting";
-  const invalidField = status.kind === "error" ? status.field : undefined;
 
   return (
     <form className="entry-form" onSubmit={handleSubmit} noValidate>
@@ -109,6 +95,7 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
           className="field__input"
           type="url"
           inputMode="url"
+          enterKeyHint="go"
           autoComplete="off"
           autoCapitalize="none"
           autoCorrect="off"
@@ -117,40 +104,14 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
           value={link}
           onChange={(event) => setLink(event.target.value)}
           onFocus={() => void prepareTurnstile().catch(() => {})}
-          aria-invalid={invalidField === "url"}
+          aria-invalid={status.kind === "error"}
           aria-describedby="post-link-hint entry-status"
           required
         />
         <p id="post-link-hint" className="field__hint">
-          Links with /p/, /reel/ or /tv/ work. In Instagram: Share, then Copy link.
+          Links with /p/, /reel/ or /tv/ work. In Instagram: Share, then Copy link. Your account must be
+          public: we check who posted it with Instagram.
         </p>
-      </div>
-
-      <div className="field">
-        <label className="field__label" htmlFor="ig-username">
-          Your Instagram username
-        </label>
-        <input
-          ref={usernameRef}
-          id="ig-username"
-          name="username"
-          className="field__input"
-          type="text"
-          inputMode="text"
-          enterKeyHint="go"
-          autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={64}
-          placeholder="@yourname"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          onFocus={() => void prepareTurnstile().catch(() => {})}
-          aria-invalid={invalidField === "username"}
-          aria-describedby="entry-status"
-          required
-        />
       </div>
 
       <button
@@ -159,7 +120,7 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
         disabled={submitting}
         aria-describedby="entry-consent"
       >
-        {submitting ? "Entering..." : "Submit"}
+        {submitting ? "Checking your post..." : "Submit"}
       </button>
 
       <p id="entry-consent" className="entry-form__consent">

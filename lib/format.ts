@@ -56,5 +56,7 @@ export function formatEntryCount(count: number): string {
   return `${count.toLocaleString("en-GB")} ${count === 1 ? "entry" : "entries"}`;
 }
 
-/** Copy shown after a successful entry. */
-export const ENTRY_ACCEPTED_MESSAGE = `You're in! The draw is every day at ${DRAW_TIME_LABEL} UK time, and your post stays in the pool for ${POOL_DAYS} days. Good luck!`;
+/** Copy shown after a successful entry, naming the owner we found on Instagram. */
+export function entryAcceptedMessage(username: string): string {
+  return `You're in, @${username}! The draw is every day at ${DRAW_TIME_LABEL} UK time, and your post stays in the pool for ${POOL_DAYS} days. Good luck!`;
+}

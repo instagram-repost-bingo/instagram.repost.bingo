@@ -139,16 +139,6 @@ export function describeLinkFailure(reason: LinkFailure): string {
   }
 }
 
-/** Friendly copy for each username failure, shared by the form and the API. */
-export function describeUsernameFailure(reason: UsernameFailure): string {
-  switch (reason) {
-    case "empty":
-      return "Add your Instagram username.";
-    case "invalid":
-      return "That doesn't look like an Instagram username. Use letters, numbers, full stops and underscores (up to 30).";
-  }
-}
-
 function matchKindAndShortcode(segments: string[]): { kind: PostKind; shortcode: string } | null {
   if (segments.length !== 2) return null;
   const kind = KIND_ALIASES.get(segments[0].toLowerCase());

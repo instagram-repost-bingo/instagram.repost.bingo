@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_LINK_LENGTH,
   describeLinkFailure,
-  describeUsernameFailure,
   parseInstagramPostUrl,
   parseInstagramUsername,
   postUrlVariants,
@@ -184,7 +183,4 @@ describe("error copy", () => {
     },
   );
 
-  it.each(["empty", "invalid"] as const)("has friendly copy for username failure %s", (reason) => {
-    expect(describeUsernameFailure(reason)).toMatch(/\.$/);
-  });
 });

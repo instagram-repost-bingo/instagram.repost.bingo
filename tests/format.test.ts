@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  ENTRY_ACCEPTED_MESSAGE,
   dayOfMonth,
+  entryAcceptedMessage,
   formatEntryCount,
   formatLongDate,
   formatShortDate,
@@ -29,8 +29,10 @@ describe("format helpers", () => {
     expect(formatEntryCount(1234)).toBe("1,234 entries");
   });
 
-  it("explains the draw after a successful entry", () => {
-    expect(ENTRY_ACCEPTED_MESSAGE).toContain("12:00 UK time");
-    expect(ENTRY_ACCEPTED_MESSAGE).toContain("7 days");
+  it("names the owner and explains the draw after a successful entry", () => {
+    const message = entryAcceptedMessage("slashie.app");
+    expect(message).toContain("@slashie.app");
+    expect(message).toContain("12:00 UK time");
+    expect(message).toContain("7 days");
   });
 });
