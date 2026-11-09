@@ -440,6 +440,11 @@ input {
   box-shadow: 0 0 0 3px var(--accent);
 }
 
+.field__hints {
+  display: grid;
+  gap: 0.3rem;
+}
+
 .field__hint {
   color: var(--muted);
   font-size: 0.95rem;

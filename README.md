@@ -43,7 +43,7 @@ It is one public page with no login and no admin:
    - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post once the bot has published it.
    - Today shows "Draw tonight at 00:00", with the number of entries in the pool, until the bot writes today's result.
 6. **Footer:**
-   - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, the winner must follow the account.
+   - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, you must follow the account to enter.
    - "Not affiliated with Instagram or Meta."
 
 ## Entries: `POST /api/entries`
@@ -87,6 +87,13 @@ The order matters: bots (Turnstile) and duplicates are stopped before the site a
   - Instagram rate-limits servers that make many requests. In testing, the post page started returning HTTP 429 after a handful of requests, while the embed page kept working.
   - If Instagram blocks Vercel, entries are refused with "try again in a few minutes". Vercel's logs show `[entries] Instagram didn't answer` when that happens.
 - The check proves who owns the post, not that the person submitting is that owner.
+
+### Following is a rule, not a check
+
+- The page tells people they must follow @insta.repost.bingo to enter. It says so in step 1 of the intro, under the link field and in the rules.
+- Nothing in this repo checks it, and the page never says it is checked.
+- Instagram doesn't show who follows an account without logging in. Its official API only reports a follow for people who have messaged the account, so a real check would need a DM step.
+- Any check, for example on the winner, is up to the bot or whoever runs the account.
 
 ## Draw history
 

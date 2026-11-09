@@ -132,7 +132,7 @@ export default function Home() {
             <li>One draw a day, at midnight ({DRAW_TIME_LABEL} UK time).</li>
             <li>Posts that aren&apos;t picked stay in the pool for {POOL_DAYS} days.</li>
             <li>The prize is a repost with credit. Nothing else.</li>
-            <li>The winner must follow @{INSTAGRAM_HANDLE}.</li>
+            <li>You must follow @{INSTAGRAM_HANDLE} to enter.</li>
           </ul>
           <p className="footer__small">
             We store your post link, the username of the account that posted it (which we look up on

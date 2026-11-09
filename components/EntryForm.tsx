@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
+import { INSTAGRAM_HANDLE } from "@/lib/config";
 import { describeLinkFailure, parseInstagramPostUrl } from "@/lib/instagram";
 import { useTurnstile } from "./useTurnstile";
 
@@ -108,10 +109,16 @@ export function EntryForm({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
           aria-describedby="post-link-hint entry-status"
           required
         />
-        <p id="post-link-hint" className="field__hint">
-          Links with /p/, /reel/ or /tv/ work. In Instagram: Share, then Copy link. Your account must be
-          public: we check who posted it with Instagram.
-        </p>
+        <div id="post-link-hint" className="field__hints">
+          <p className="field__hint">
+            Links with /p/, /reel/ or /tv/ work. In Instagram: Share, then Copy link.
+          </p>
+          {/* Following is a stated rule only: nothing in this repo checks it. */}
+          <p className="field__hint">
+            To enter you must follow @{INSTAGRAM_HANDLE}, and your account must be public so we can see
+            who posted it.
+          </p>
+        </div>
       </div>
 
       <button
