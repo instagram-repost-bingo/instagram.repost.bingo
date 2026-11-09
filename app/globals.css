@@ -482,6 +482,77 @@ input {
   line-height: 1;
 }
 
+/* ---------- Who's in ---------- */
+
+.layout__side {
+  display: grid;
+  align-content: start;
+  gap: 2.5rem;
+}
+
+.pool {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: var(--line) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.pool__body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.pool__count {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pool__count .pill {
+  color: var(--ink);
+}
+
+.pool__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.pool__entrant {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.35rem 0.8rem;
+  overflow-wrap: anywhere;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.pool__entrant:hover {
+  background: var(--accent);
+}
+
+.pool__empty {
+  font-weight: 700;
+}
+
+.pool__more {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.pool__note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 /* ---------- Draw history ---------- */
 
 .history {
@@ -752,8 +823,12 @@ input {
     padding: 1.75rem;
   }
 
-  .history {
+  .layout__side {
     padding-top: 0.75rem;
+  }
+
+  .pool {
+    padding: 1.5rem;
   }
 
   .footer__inner {

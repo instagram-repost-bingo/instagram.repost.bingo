@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { BingoBall } from "@/components/BingoBall";
 import { DrawHistory, DrawHistorySkeleton } from "@/components/DrawHistory";
 import { EntryForm } from "@/components/EntryForm";
+import { WhoIsIn, WhoIsInSkeleton } from "@/components/WhoIsIn";
 import {
   DRAW_TIME_LABEL,
   INSTAGRAM_HANDLE,
@@ -81,19 +82,30 @@ export default function Home() {
             </section>
           </div>
 
-          <section className="history" aria-labelledby="history-heading">
-            <div className="history__head">
-              <h2 id="history-heading" className="section-title">
-                Draw history
+          <div className="layout__side">
+            <section className="pool" aria-labelledby="pool-heading">
+              <h2 id="pool-heading" className="section-title">
+                Who&apos;s in
               </h2>
-              <p className="history__sub">
-                One draw a day at {DRAW_TIME_LABEL} UK time.
-              </p>
-            </div>
-            <Suspense fallback={<DrawHistorySkeleton />}>
-              <DrawHistory />
-            </Suspense>
-          </section>
+              <Suspense fallback={<WhoIsInSkeleton />}>
+                <WhoIsIn />
+              </Suspense>
+            </section>
+
+            <section className="history" aria-labelledby="history-heading">
+              <div className="history__head">
+                <h2 id="history-heading" className="section-title">
+                  Draw history
+                </h2>
+                <p className="history__sub">
+                  One draw a day at {DRAW_TIME_LABEL} UK time.
+                </p>
+              </div>
+              <Suspense fallback={<DrawHistorySkeleton />}>
+                <DrawHistory />
+              </Suspense>
+            </section>
+          </div>
         </div>
       </main>
 
@@ -108,9 +120,10 @@ export default function Home() {
             <li>The winner must follow @{INSTAGRAM_HANDLE}.</li>
           </ul>
           <p className="footer__small">
-            We store your post link, your Instagram username and when you entered. To stop spam,
-            Cloudflare Turnstile checks that entries come from people, and we keep a scrambled
-            (hashed) copy of your IP address for about 10 minutes.
+            We store your post link, the username of the account that posted it (which we look up on
+            Instagram) and when you entered. Entries are public: the &ldquo;Who&apos;s in&rdquo; list
+            shows each username and post. To stop spam, Cloudflare Turnstile checks that entries come
+            from people, and we keep a scrambled (hashed) copy of your IP address for about 10 minutes.
           </p>
           <p className="footer__disclaimer">Not affiliated with Instagram or Meta.</p>
         </div>

@@ -1,6 +1,6 @@
 import type { Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { countPool, loadHistory, toSummary } from "@/lib/history";
+import { countPool, loadHistory, loadPool, toSummary } from "@/lib/history";
 import { startTestMongo } from "./support/mongo";
 
 let mongo: Awaited<ReturnType<typeof startTestMongo>>;
@@ -146,5 +146,57 @@ describe("reading what the bot wrote, defensively", () => {
       winnerUrl: "https://www.instagram.com/reel/C9-kL2mNoPq",
       winnerUsername: "lucky.one",
     });
+  });
+});
+
+describe("who's in (the current pool)", () => {
+  const now = new Date("2026-11-09T10:00:00Z");
+  const at = (iso: string, username: string, shortcode: string, drawDate: string | null = null) => ({
+    url: `https://www.instagram.com/p/${shortcode}`,
+    username,
+    createdAt: new Date(iso),
+    drawDate,
+  });
+
+  it("lists everyone in the pool, newest first, with a total", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [], [
+      at("2026-11-08T09:00:00Z", "older.one", "OlderPost01"),
+      at("2026-11-09T09:30:00Z", "newest.one", "NewestPost1"),
+      at("2026-11-09T08:00:00Z", "middle_one", "MiddlePost1"),
+      at("2026-11-01T09:00:00Z", "expired.one", "ExpiredPst1"), // more than 7 days ago
+      at("2026-11-08T08:00:00Z", "past.winner", "WinnerPost1", "2026-11-08"), // already picked
+    ]);
+    const pool = await loadPool(db, now);
+    expect(pool.total).toBe(3);
+    expect(pool.entries).toEqual([
+      { username: "newest.one", url: "https://www.instagram.com/p/NewestPost1" },
+      { username: "middle_one", url: "https://www.instagram.com/p/MiddlePost1" },
+      { username: "older.one", url: "https://www.instagram.com/p/OlderPost01" },
+    ]);
+  });
+
+  it("caps the list but keeps the full total", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [], Array.from({ length: 5 }, (_, i) => at(`2026-11-09T0${i}:00:00Z`, `user${i}`, `PostNumber${i}`)));
+    const pool = await loadPool(db, now, 2);
+    expect(pool.total).toBe(5);
+    expect(pool.entries.map((e) => e.username)).toEqual(["user4", "user3"]);
+  });
+
+  it("skips entries with an invalid username or link", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [], [
+      at("2026-11-09T09:00:00Z", "<script>", "BadUserPost"),
+      { ...at("2026-11-09T08:00:00Z", "fine.user", "x"), url: "javascript:alert(1)" },
+      at("2026-11-09T07:00:00Z", "fine.user", "GoodPost001"),
+    ]);
+    expect((await loadPool(db, now)).entries).toEqual([
+      { username: "fine.user", url: "https://www.instagram.com/p/GoodPost001" },
+    ]);
+  });
+
+  it("is empty when nobody has entered", async () => {
+    expect(await loadPool(mongo.freshDb(), now)).toEqual({ total: 0, entries: [] });
   });
 });

@@ -1,7 +1,7 @@
 import "server-only";
 import type { Db, Document } from "mongodb";
 import { drawsCollection, entriesCollection } from "./collections";
-import { HISTORY_LIMIT, POOL_DAYS } from "./config";
+import { HISTORY_LIMIT, POOL_DAYS, POOL_LIST_LIMIT } from "./config";
 import { parseInstagramPostUrl, parseInstagramUsername } from "./instagram";
 import { isDateKey, londonDateKey, type DateKey } from "./london-time";
 
@@ -46,9 +46,46 @@ export async function loadHistory(
 }
 
 /** Entries currently in the pool: not picked yet and entered in the last 7 days. */
-export async function countPool(db: Db, now: Date): Promise<number> {
+function poolFilter(now: Date) {
   const since = new Date(now.getTime() - POOL_DAYS * 24 * 60 * 60 * 1000);
-  return entriesCollection(db).countDocuments({ drawDate: null, createdAt: { $gte: since } });
+  return { drawDate: null, createdAt: { $gte: since } };
+}
+
+export async function countPool(db: Db, now: Date): Promise<number> {
+  return entriesCollection(db).countDocuments(poolFilter(now));
+}
+
+export interface PoolEntry {
+  username: string;
+  url: string;
+}
+
+export interface PoolData {
+  /** Everyone in the pool. */
+  total: number;
+  /** The newest entries, up to the limit. */
+  entries: PoolEntry[];
+}
+
+/** Who's in the draw: the current pool, newest first. */
+export async function loadPool(db: Db, now: Date, limit: number = POOL_LIST_LIMIT): Promise<PoolData> {
+  const entries = entriesCollection(db);
+  const [total, docs] = await Promise.all([
+    entries.countDocuments(poolFilter(now)),
+    entries
+      .find(poolFilter(now), { projection: { _id: 0, url: 1, username: 1 } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray(),
+  ]);
+  return {
+    total,
+    entries: docs.flatMap((doc) => {
+      const user = parseInstagramUsername(doc.username);
+      const post = parseInstagramPostUrl(doc.url);
+      return user.ok && post.ok ? [{ username: user.username, url: post.post.url }] : [];
+    }),
+  };
 }
 
 /**

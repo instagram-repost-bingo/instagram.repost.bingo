@@ -31,19 +31,20 @@ It is one public page with no login and no admin:
 
 1. **Intro:** "Follow @insta.repost.bingo. Paste your post link. One random post gets reposted every day, with credit." A Follow button opens the Instagram profile.
 2. **Entry form:**
-   - An Instagram post link field, a username field and a Submit button.
+   - One field for the Instagram post link, and a Submit button. There is no username field: the site reads the post's owner from Instagram.
    - The consent line "By entering you confirm it's your own post and allow us to repost it with credit."
-   - Success and error messages show inline.
-3. **Draw history:**
+   - Success and error messages show inline. The success message names the owner ("You're in, @name!").
+3. **Who's in:** everyone in the pool for the next draw, newest first. Each @username links to the entered post.
+4. **Draw history:**
    - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post once the bot has published it.
    - Today shows "Draw at 12:00", with the number of entries in the pool, until the bot writes today's result.
-4. **Footer:**
+5. **Footer:**
    - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, the winner must follow the account.
    - "Not affiliated with Instagram or Meta."
 
 ## Entries: `POST /api/entries`
 
-This is the only write endpoint. It takes JSON `{ url, username, turnstileToken }` and runs these steps in order:
+This is the only write endpoint. It takes JSON `{ url, turnstileToken }` and runs these steps in order:
 
 1. **Basic request checks:** JSON only, body up to 8 KB.
 2. **Rate limit per IP:**
@@ -59,18 +60,29 @@ This is the only write endpoint. It takes JSON `{ url, username, turnstileToken 
    - Keeps the post type and the shortcode as they are. Shortcodes are case-sensitive.
 
    For example, `instagram.com/Some.Creator/reels/C9-kL2mNoPq/?igsh=abc` becomes `https://www.instagram.com/reel/C9-kL2mNoPq`.
-5. **Username validation:**
-   - Letters, numbers, full stops and underscores, up to 30 characters.
-   - A leading `@` is removed. A pasted profile link works too.
-   - Stored in lowercase.
-6. **Cloudflare Turnstile:**
+5. **Cloudflare Turnstile:**
    - The token is verified server-side with Cloudflare.
    - In production a missing `TURNSTILE_SECRET_KEY` refuses all entries rather than silently switching the check off. Local `bun run dev` skips the check when no key is set.
    - The widget script only loads once someone taps a field. It stays invisible unless Cloudflare needs a click.
-7. **Duplicates:**
-   - A unique index on the normalised `url` rejects the same link, even when two people submit it at the same moment.
-   - Before inserting, the site also checks the other post types for the same shortcode. That way a post entered as `/p/...` can't come back as `/reel/...`.
-8. **Insert:** `{ url, username, createdAt, drawDate: null }`, exactly the shared shape.
+6. **Duplicates:**
+   - The site checks every post type for the same shortcode. That way a post entered as `/p/...` can't come back as `/reel/...`.
+   - A unique index on the normalised `url` also rejects the same link if two people submit it at the same moment.
+7. **Owner check with Instagram:** see below. If Instagram can't show the post publicly, the entry is rejected. If Instagram doesn't answer, people are asked to try again in a few minutes. Posts by @insta.repost.bingo itself are rejected.
+8. **Insert:** `{ url, username, createdAt, drawDate: null }`, exactly the shared shape. `username` is the owner Instagram reported, in lowercase.
+
+The order matters: bots (Turnstile) and duplicates are stopped before the site asks Instagram anything.
+
+### How the owner check works
+
+- The site loads Instagram's public **embed page** for the post (`https://www.instagram.com/p/<shortcode>/embed/`). This is the page Instagram serves for embedding posts on other websites, and it names the owner.
+- Instagram doesn't serve embeds of private posts. So "we can read the owner" also means "the post exists and is public".
+- If the embed page is blocked or rate-limited, the site tries the post page and reads the owner from its `og:url`.
+- **Caveats:**
+  - This isn't an official API. Instagram has none for looking up a post's owner, and its terms don't allow automated collection.
+  - It can break if Instagram changes its pages.
+  - Instagram rate-limits servers that make many requests. In testing, the post page started returning HTTP 429 after a handful of requests, while the embed page kept working.
+  - If Instagram blocks Vercel, entries are refused with "try again in a few minutes". Vercel's logs show `[entries] Instagram didn't answer` when that happens.
+- The check proves who owns the post, not that the person submitting is that owner.
 
 ## Draw history
 
@@ -117,6 +129,7 @@ components/
   DrawHistory.tsx          history list (read-only, request-time)
 lib/
   instagram.ts             link and username validation and normalisation
+  instagram-owner.ts       reads a post's owner from Instagram's embed page
   api/create-entry.ts      the entries endpoint logic (tested directly)
   entries.ts, history.ts   MongoDB writes and reads
   collections.ts           shared data contract types and indexes
@@ -165,8 +178,9 @@ bun run build
 Use `bun run test`, not `bun test`: the tests use Vitest, and `bun test` would start Bun's own test runner instead. `bun run test` runs:
 
 - Unit tests for link validation and normalisation, usernames, London dates and formatting.
-- Integration tests for the entries API: the shared shape, duplicates, rate limiting and Turnstile.
-- Integration tests for the history reader, including badly formed draw documents.
+- Unit tests for the Instagram owner check (embed page, post-page fallback, rate limits and login walls), using a fake `fetch`.
+- Integration tests for the entries API: the shared shape, the owner check, duplicates, rate limiting and Turnstile.
+- Integration tests for the history and "Who's in" readers, including badly formed documents.
 
 The first run downloads a MongoDB binary (about 120 MB). The build does not need a database.
 
@@ -217,7 +231,8 @@ Keep both records grey-clouded. Vercel recommends connecting directly. A second 
 ## Privacy
 
 - **What we store:**
-  - The normalised post link, the Instagram username and when the entry was made.
+  - The normalised post link, the username of the account that posted it (read from Instagram) and when the entry was made.
+  - Entries are public: the "Who's in" list shows each username and post until it leaves the pool.
   - Winners' usernames and links are public in the history.
 - **Rate limiting:** a keyed hash of the IP address, kept for about 10 minutes.
 - **Third parties:** Cloudflare Turnstile checks that entries come from people. There are no cookies, analytics or other third-party scripts.

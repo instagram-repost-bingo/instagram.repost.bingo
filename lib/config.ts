@@ -19,5 +19,8 @@ export const POOL_DAYS = 7;
 /** How many past draws the history list loads. */
 export const HISTORY_LIMIT = 30;
 
+/** How many entrants the "Who's in" list shows (newest first). */
+export const POOL_LIST_LIMIT = 100;
+
 /** Basic per-IP limit on submit attempts (valid or not). */
 export const SUBMIT_RATE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
