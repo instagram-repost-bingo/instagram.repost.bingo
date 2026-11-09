@@ -65,7 +65,7 @@ This is the only write endpoint. It takes JSON `{ url, username, turnstileToken 
    - Stored in lowercase.
 6. **Cloudflare Turnstile:**
    - The token is verified server-side with Cloudflare.
-   - In production a missing `TURNSTILE_SECRET_KEY` refuses all entries rather than silently switching the check off. Local `npm run dev` skips the check when no key is set.
+   - In production a missing `TURNSTILE_SECRET_KEY` refuses all entries rather than silently switching the check off. Local `bun run dev` skips the check when no key is set.
    - The widget script only loads once someone taps a field. It stays invisible unless Cloudflare needs a click.
 7. **Duplicates:**
    - A unique index on the normalised `url` rejects the same link, even when two people submit it at the same moment.
@@ -124,10 +124,10 @@ tests/                     unit and integration tests
 
 ## Local development
 
-You need Node.js 22.12 or newer (24 LTS recommended) and a MongoDB database. Use a separate dev database rather than the bot's production one.
+You need [Bun](https://bun.sh) (the package manager; `bun.lock` is the lockfile), Node.js 22.12 or newer (24 LTS recommended, Next.js runs on it) and a MongoDB database. Use a separate dev database rather than the bot's production one.
 
 ```bash
-npm install
+bun install
 ```
 
 ```bash
@@ -137,7 +137,7 @@ cp .env.example .env.local
 Set `MONGODB_URI` in `.env.local`, with the database name in the path. Turnstile is optional locally. Leave its keys empty, or use Cloudflare's test keys listed in `.env.example`.
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Open http://localhost:3000. To see results in the history, add a document to `draws` in the shape above (the bot normally does this).
@@ -145,22 +145,22 @@ Open http://localhost:3000. To see results in the history, add a document to `dr
 Checks (all pass on `main`):
 
 ```bash
-npm test
+bun run test
 ```
 
 ```bash
-npm run lint
+bun run lint
 ```
 
 ```bash
-npm run typecheck
+bun run typecheck
 ```
 
 ```bash
-npm run build
+bun run build
 ```
 
-`npm test` runs:
+Use `bun run test`, not `bun test`: the tests use Vitest, and `bun test` would start Bun's own test runner instead. `bun run test` runs:
 
 - Unit tests for link validation and normalisation, usernames, London dates and formatting.
 - Integration tests for the entries API: the shared shape, duplicates, rate limiting and Turnstile.
@@ -188,7 +188,8 @@ The first run downloads a MongoDB binary (about 120 MB). The build does not need
    - Add the hostnames `repost.bingo` and `www.repost.bingo`, plus your Vercel preview domain if you want previews to accept entries.
    - Copy the site key and the secret key.
 3. **Vercel project**
-   - Import the GitHub repo in Vercel. The framework preset is Next.js, and the defaults are fine.
+   - Import the GitHub repo in Vercel. Check that **Framework Preset** is **Next.js** (Settings > Build and Deployment). If the project was created while the repo was still empty, Vercel picks "Other" and the build fails.
+   - Leave the install and build commands on their defaults. Vercel sees `bun.lock` and installs with Bun automatically.
    - Add the three environment variables above for Production.
    - Previews also run in production mode, so they need Turnstile keys and their own (non-production) database if you want them to accept entries.
    - Deploy. There are no cron jobs in this repo; the bot runs the draw.
