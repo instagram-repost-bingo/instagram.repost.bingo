@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   dayOfMonth,
   entryAcceptedMessage,
+  formatCardDate,
   formatEntryCount,
   formatLongDate,
   formatShortDate,
@@ -13,6 +14,8 @@ import {
 describe("format helpers", () => {
   it("formats date keys without shifting the day", () => {
     expect(formatShortDate("2026-11-09")).toBe("Mon 9 Nov");
+    expect(formatCardDate("2026-11-10")).toBe("10 Nov 2026");
+    expect(formatCardDate("2027-01-01")).toBe("1 Jan 2027");
     expect(formatLongDate("2026-11-09")).toBe("Monday 9 November");
     expect(dayOfMonth("2026-11-09")).toBe("09");
     expect(monthAbbrev("2026-11-09")).toBe("NOV");

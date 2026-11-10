@@ -13,18 +13,19 @@ The public website for [@insta.repost.bingo](https://www.instagram.com/insta.rep
 The system is two repos that share one MongoDB database:
 
 ```text
- repost.bingo website (this repo)          repost-bingo-bot (private repo)
+ repost.bingo website (this repo)          draw bot (private repo, repost-bingo-bot)
  - collects entries                        - runs the draw every night at 00:00 London time
  - shows the draw history                  - writes the result to `draws`
-            \                              - posts a result card on Instagram
-             \                             - tells the owner, who taps Repost by hand
-              \                                       /
-               +---------- MongoDB Atlas ------------+
+ - draws the result card on request
+            \                                         /
+             +------------ MongoDB Atlas ------------+
                  entries: written by the website, picked by the bot
                  draws:   written by the bot, read by the website
 ```
 
-This repo has no draw, scheduling or Instagram posting logic. It only writes new entries and reads results.
+This repo has no draw, scheduling or Instagram posting logic. It writes new entries, reads results, and draws a result's card when asked.
+
+Nothing posts to Instagram automatically. Whoever runs the account opens the winner's post and taps Repost. A posting job can be added later without changing either repo: it fetches the card from [`/api/draws/{date}/card.jpg`](#result-card-get-apidrawsdatecardjpg).
 
 ## What the site does
 
@@ -33,7 +34,7 @@ It is one public page with no login and no admin:
 1. **Intro:** "Follow @insta.repost.bingo. Paste your post link. One random post gets reposted every day, with credit." A Follow button opens the Instagram profile.
 2. **Next draw and last night's winner:**
    - A live countdown (hours, minutes, seconds) to the next draw at 00:00 UK time. It is computed in the browser for Europe/London, so it handles GMT and BST.
-   - For an hour and a half after midnight the page refreshes its data by itself, so the new result appears when the bot posts it.
+   - For an hour and a half after midnight the page refreshes its data by itself, so the new result appears soon after the bot writes it.
    - The most recent result is always shown: "Last night's winner", the @username, the date, the entry count and the post links.
 3. **Entry form:**
    - One field for the Instagram post link, and a Submit button. There is no username field: the site reads the post's owner from Instagram.
@@ -41,7 +42,7 @@ It is one public page with no login and no admin:
    - Success and error messages show inline. The success message names the owner ("You're in, @name!").
 4. **Who's in:** everyone in the pool for the next draw, newest first. Each @username links to the entered post.
 5. **Draw history:**
-   - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post once the bot has published it.
+   - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post if one has been saved in `resultPostUrl`.
    - The first row is always the next draw: "Tonight at 00:00", with the number of entries in the pool.
 6. **Footer:**
    - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, you must follow the account to enter.
@@ -108,6 +109,27 @@ Because the bot owns `draws`, the website checks each document before showing it
 
 The pool size on the next-draw row counts entries with `drawDate: null` from the last 7 days. The bot draws from the same set.
 
+## Result card: `GET /api/draws/{date}/card.jpg`
+
+The winner's card for the draw on that date, drawn on request as a 1080×1350 JPEG, for example `https://repost.bingo/api/draws/2026-11-10/card.jpg`. `{date}` is the draw's `date`: the London day the bot ran, so the draw just after midnight on 10 November is `2026-11-10`.
+
+<img src="docs/result-card.jpg" alt="Sample result card: Draw #12, 10 Nov 2026, today's pick @your.username, picked from 24 entries" width="320">
+
+- **What it shows:** the draw number and date, the winner's @username, the number of entries, and "Submit yours, link in bio", in the page's colours and typeface.
+- **For a posting job:** pass the URL as `image_url` when creating the Instagram media container. Instagram downloads the image itself, and its Content Publishing API only accepts JPEG, so no separate image host is needed.
+- **Responses:**
+
+| Status | When |
+| --- | --- |
+| 200 | The JPEG, with `Cache-Control: public, max-age=3600, s-maxage=86400`. |
+| 404 | Not a real date, a date after today in London, no draw yet, a night with an empty pool, or a draw document that fails the checks above. Never cached. |
+| 429 | More than 30 cards drawn for one IP address in 10 minutes. |
+| 503 | The database is unavailable, or drawing failed. |
+
+- **Cost:** Vercel's CDN keeps each card for a day, so a card is usually drawn once per CDN region. A request with an extra query string skips the cache, which is why drawing is rate-limited (the same keyed IP hash as entries). A card takes about 35 ms to draw, plus about 0.3 s to load Skia when a function starts cold.
+- **How:** `lib/result-card.ts` draws it with [`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas) (Skia) and the variable Bricolage Grotesque in `assets/fonts` (SIL Open Font License). `next.config.ts` keeps the native package out of the bundle (`serverExternalPackages`) and ships the font with the route (`outputFileTracingIncludes`). The Skia binary adds about 37 MB to that one function.
+- **Changing the design:** edit `lib/result-card.ts`. Its colours are the tokens in `app/globals.css`, so change them together. A new deploy starts with an empty cache, so cards are drawn again with the new design.
+
 ## Shared data contract
 
 Don't change these shapes without updating the bot.
@@ -115,20 +137,20 @@ Don't change these shapes without updating the bot.
 Both repos must use the same database: the one named in `MONGODB_URI`, or `repost_bingo` if the connection string doesn't name one.
 
 **Draw time and `draws.date`.**
-- The bot starts the draw at 00:02 UK time (Europe/London). If posting fails, it retries by itself for a few hours.
+- The bot starts the draw at 00:02 UK time (Europe/London). If a run fails, later runs that night retry by themselves.
 - It dates each draw by the London day it ran. The draw just after midnight on 10 November has `date: "2026-11-10"`, so the page shows it as today's result.
 - The page doesn't depend on that. The next draw has its own row without a date, and "Last night's winner" is simply the newest result.
 
 | Collection | Shape | Written by | Read by |
 | --- | --- | --- | --- |
 | `entries` | `{ url (unique), username, createdAt, drawDate \| null }` | website (inserts with `drawDate: null`) | bot |
-| `draws` | `{ date "YYYY-MM-DD", entryCount, winnerUrl \| null, winnerUsername \| null, resultPostUrl \| null, createdAt }` | bot | website |
+| `draws` | `{ date "YYYY-MM-DD", drawNumber, entryCount, winnerUrl \| null, winnerUsername \| null, resultPostUrl \| null, createdAt }` | bot | website |
 
-Bot-only extras, which the website ignores:
-
-- **More fields on `draws`:** `drawNumber`, `seed`, `status`, `resultPostId` and a few for its own bookkeeping.
+- **`drawNumber`** is 1, 2, 3 and so on, counting nights with an empty pool. Only the result card uses it.
+- **`resultPostUrl`** stays `null` until something posts the result and saves the post's link. The draw bot never posts.
 - **A night with no entries:** `entryCount: 0` and `null` for the winner. The page shows it as "No winner this day."
-- **`bot_state` collection:** the bot's Instagram token. The website never reads it.
+
+Bot-only extras, which the website ignores: `seed` (to check the pick), `status` (`drawn` or `skipped_empty`) and `resultPostId`.
 
 Website-only extras:
 
@@ -140,6 +162,7 @@ Website-only extras:
 - Next.js 16 (App Router, Cache Components) and TypeScript on Vercel.
 - MongoDB Atlas through the official `mongodb` driver. One cached client is shared across warm serverless calls, and `attachDatabasePool` from `@vercel/functions` closes idle connections cleanly on Fluid compute.
 - Plain CSS with the Bricolage Grotesque font self-hosted by `next/font`. There are no tracking scripts, cookies or images apart from the icon.
+- `@napi-rs/canvas` (Skia) draws the result card in a Node.js function.
 - Vitest for tests. The database tests run against a real, throwaway MongoDB (`mongodb-memory-server`).
 
 ```text
@@ -147,16 +170,21 @@ app/
   page.tsx                 the single page
   layout.tsx, globals.css  font, metadata, styles
   api/entries/route.ts     POST: submit an entry
+  api/draws/[date]/card.jpg/route.ts
+                           GET: a result card as a JPEG
 components/
-  EntryForm.tsx            link + username form, inline messages, Turnstile
+  EntryForm.tsx            link form, inline messages, Turnstile
   DrawHistory.tsx          history list (read-only, request-time)
 lib/
   instagram.ts             link and username validation and normalisation
   instagram-owner.ts       reads a post's owner from Instagram's embed page
   api/create-entry.ts      the entries endpoint logic (tested directly)
+  api/draw-card.ts         the card endpoint logic (tested directly)
+  result-card.ts           draws the result card
   entries.ts, history.ts   MongoDB writes and reads
   collections.ts           shared data contract types and indexes
   rate-limit.ts, turnstile.ts, mongodb.ts
+assets/fonts/              Bricolage Grotesque for the card, and its licence
 tests/                     unit and integration tests
 ```
 
@@ -178,7 +206,7 @@ Set `MONGODB_URI` in `.env.local`. Turnstile is optional locally. Leave its keys
 bun run dev
 ```
 
-Open http://localhost:3000. To see results in the history, add a document to `draws` in the shape above (the bot normally does this).
+Open http://localhost:3000. To see results in the history, add a document to `draws` in the shape above (the bot normally does this). Its card is at http://localhost:3000/api/draws/YYYY-MM-DD/card.jpg.
 
 Checks (all pass on `main`):
 
@@ -203,6 +231,7 @@ Use `bun run test`, not `bun test`: the tests use Vitest, and `bun test` would s
 - Unit tests for link validation and normalisation, usernames, London dates, the midnight countdown (including the nights the clocks change) and formatting.
 - Unit tests for the Instagram owner check (embed page, post-page fallback, rate limits and login walls), using a fake `fetch`.
 - Integration tests for the entries API: the shared shape, the owner check, duplicates, rate limiting and Turnstile.
+- Unit tests for the result card (size, palette, long usernames) and integration tests for the card endpoint (dates, empty nights, bad data, rate limiting, errors).
 - Integration tests for the history, "Who's in" and last night's winner readers, including badly formed documents.
 
 The first run downloads a MongoDB binary (about 120 MB). The build does not need a database.
@@ -256,7 +285,7 @@ Keep both records grey-clouded. Vercel recommends connecting directly. A second 
 - **What we store:**
   - The normalised post link, the username of the account that posted it (read from Instagram) and when the entry was made.
   - Entries are public: the "Who's in" list shows each username and post until it leaves the pool.
-  - Winners' usernames and links are public in the history.
+  - Winners' usernames and links are public in the history. A result card shows nothing more than the history does.
 - **Rate limiting:** a keyed hash of the IP address, kept for about 10 minutes.
 - **Third parties:** Cloudflare Turnstile checks that entries come from people. There are no cookies, analytics or other third-party scripts.
 - **Removing an entry on request:** delete the document from `entries` in Atlas, looked up by its `url`.

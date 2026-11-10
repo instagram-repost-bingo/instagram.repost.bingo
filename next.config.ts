@@ -38,6 +38,13 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // The result card is drawn with Skia, a native module. Load it from
+  // node_modules at runtime instead of bundling it.
+  serverExternalPackages: ["@napi-rs/canvas"],
+  // lib/result-card.ts reads its font from disk, so ship the font with the card route.
+  outputFileTracingIncludes: {
+    "/api/draws/**": ["./assets/fonts/**/*"],
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

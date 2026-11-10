@@ -20,6 +20,13 @@ const longDate = new Intl.DateTimeFormat("en-GB", {
 
 const monthOnly = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
 
+const cardDate = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 function dateKeyToUtc(dateKey: DateKey): Date {
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -33,6 +40,11 @@ export function formatShortDate(dateKey: DateKey): string {
 /** "Monday 9 November" */
 export function formatLongDate(dateKey: DateKey): string {
   return longDate.format(dateKeyToUtc(dateKey));
+}
+
+/** "10 Nov 2026", as printed on the result card. */
+export function formatCardDate(dateKey: DateKey): string {
+  return cardDate.format(dateKeyToUtc(dateKey));
 }
 
 /** "09", for the number on a bingo ball. */

@@ -58,6 +58,33 @@ export async function loadLatestDraw(db: Db, now: Date): Promise<DrawSummary | n
   return null;
 }
 
+/** What the result card needs from a draw. Only a draw with a winner has a card. */
+export interface CardDraw {
+  date: DateKey;
+  drawNumber: number;
+  entryCount: number;
+  winnerUsername: string;
+}
+
+/**
+ * The draw for one date, checked like the history, or null when there is no
+ * winner to show (no draw yet, an empty pool, or data the bot wrote badly).
+ */
+export async function loadCardDraw(db: Db, date: DateKey): Promise<CardDraw | null> {
+  const doc = await drawsCollection(db).findOne({ date }, { projection: { _id: 0 } });
+  if (!doc) return null;
+  const summary = toSummary(doc);
+  if (!summary?.winnerUsername || summary.entryCount === null || summary.entryCount < 1) return null;
+  const drawNumber: unknown = doc.drawNumber;
+  if (typeof drawNumber !== "number" || !Number.isSafeInteger(drawNumber) || drawNumber < 1) return null;
+  return {
+    date: summary.date,
+    drawNumber,
+    entryCount: summary.entryCount,
+    winnerUsername: summary.winnerUsername,
+  };
+}
+
 /** Entries currently in the pool: not picked yet and entered in the last 7 days. */
 function poolFilter(now: Date) {
   const since = new Date(now.getTime() - POOL_DAYS * 24 * 60 * 60 * 1000);

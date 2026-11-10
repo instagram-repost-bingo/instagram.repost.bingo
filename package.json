@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.1.0",
     "@vercel/functions": "3.11.1",
     "mongodb": "7.8.0",
     "next": "16.4.5",

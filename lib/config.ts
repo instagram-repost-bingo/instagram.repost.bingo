@@ -24,3 +24,10 @@ export const POOL_LIST_LIMIT = 100;
 
 /** Basic per-IP limit on submit attempts (valid or not). */
 export const SUBMIT_RATE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
+
+/**
+ * Per-IP limit on drawing result cards. Vercel's CDN serves repeat requests, so
+ * this only counts renders: it stops a script from burning CPU by adding junk
+ * query strings to the URL.
+ */
+export const CARD_RATE_LIMIT = { limit: 30, windowMs: 10 * 60 * 1000 } as const;

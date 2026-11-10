@@ -5,8 +5,8 @@ import type { Collection, Db, Document, IndexSpecification, ObjectId } from "mon
 // shapes without updating the bot.
 //
 //   entries: { url (unique), username, createdAt, drawDate | null }   written here
-//   draws:   { date "YYYY-MM-DD", entryCount, winnerUrl, winnerUsername,
-//              resultPostUrl | null, createdAt }                      read-only here
+//   draws:   { date "YYYY-MM-DD", drawNumber, entryCount, winnerUrl,
+//              winnerUsername, resultPostUrl | null, createdAt }      read-only here
 
 /** One submitted post. The website inserts it; the bot sets drawDate when it wins. */
 export interface EntryDoc {
@@ -24,6 +24,8 @@ export interface EntryDoc {
 export interface DrawDoc {
   _id?: ObjectId;
   date: string;
+  /** 1, 2, 3 and so on, counting nights with an empty pool. Printed on the result card. */
+  drawNumber: number;
   entryCount: number;
   winnerUrl: string;
   winnerUsername: string;
