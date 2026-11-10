@@ -16,9 +16,10 @@ The system is two repos that share one MongoDB database:
  repost.bingo website (this repo)          repost-bingo-bot (private repo)
  - collects entries                        - runs the draw every night at 00:00 London time
  - shows the draw history                  - writes the result to `draws`
-            \                              - posts the result and the repost on Instagram
-             \                                        /
-              +----------- MongoDB Atlas ------------+
+            \                              - posts a result card on Instagram
+             \                             - tells the owner, who taps Repost by hand
+              \                                       /
+               +---------- MongoDB Atlas ------------+
                  entries: written by the website, picked by the bot
                  draws:   written by the bot, read by the website
 ```
@@ -32,7 +33,7 @@ It is one public page with no login and no admin:
 1. **Intro:** "Follow @insta.repost.bingo. Paste your post link. One random post gets reposted every day, with credit." A Follow button opens the Instagram profile.
 2. **Next draw and last night's winner:**
    - A live countdown (hours, minutes, seconds) to the next draw at 00:00 UK time. It is computed in the browser for Europe/London, so it handles GMT and BST.
-   - Just after midnight the page refreshes its data a few times so the new result appears.
+   - For an hour and a half after midnight the page refreshes its data by itself, so the new result appears when the bot posts it.
    - The most recent result is always shown: "Last night's winner", the @username, the date, the entry count and the post links.
 3. **Entry form:**
    - One field for the Instagram post link, and a Submit button. There is no username field: the site reads the post's owner from Instagram.
@@ -41,7 +42,7 @@ It is one public page with no login and no admin:
 4. **Who's in:** everyone in the pool for the next draw, newest first. Each @username links to the entered post.
 5. **Draw history:**
    - Results from `draws`, newest first: date, entry count, the winner's @username, a link to the winning post, and a link to the result post once the bot has published it.
-   - Today shows "Draw tonight at 00:00", with the number of entries in the pool, until the bot writes today's result.
+   - The first row is always the next draw: "Tonight at 00:00", with the number of entries in the pool.
 6. **Footer:**
    - The rules: free, one draw a day, unpicked entries stay in the pool for 7 days, the prize is a repost with credit only, you must follow the account to enter.
    - "Not affiliated with Instagram or Meta."
@@ -93,7 +94,7 @@ The order matters: bots (Turnstile) and duplicates are stopped before the site a
 - The page tells people they must follow @insta.repost.bingo to enter. It says so in step 1 of the intro, under the link field and in the rules.
 - Nothing in this repo checks it, and the page never says it is checked.
 - Instagram doesn't show who follows an account without logging in. Its official API only reports a follow for people who have messaged the account, so a real check would need a DM step.
-- Any check, for example on the winner, is up to the bot or whoever runs the account.
+- The bot doesn't check it either. Whoever runs the account can check the winner by hand before reposting.
 
 ## Draw history
 
@@ -105,7 +106,7 @@ Because the bot owns `draws`, the website checks each document before showing it
 - Only real Instagram post links are turned into links.
 - Usernames are validated.
 
-The pool size on today's row counts entries with `drawDate: null` from the last 7 days.
+The pool size on the next-draw row counts entries with `drawDate: null` from the last 7 days. The bot draws from the same set.
 
 ## Shared data contract
 
@@ -113,14 +114,21 @@ Don't change these shapes without updating the bot.
 
 Both repos must use the same database: the one named in `MONGODB_URI`, or `repost_bingo` if the connection string doesn't name one.
 
-**Draw time and `draws.date`.** The bot runs the draw every night at 00:00 UK time (Europe/London).
-- Recommended: give each draw the `date` of the day whose entries were drawn, which is the day that just ended. The draw at 00:00 on 10 November then has `date: "2026-11-09"`. The history reads naturally that way: "Today: Draw tonight at 00:00", then the result under "Yesterday".
-- The "Last night's winner" card works either way: it shows the newest result dated today or earlier.
+**Draw time and `draws.date`.**
+- The bot starts the draw at 00:02 UK time (Europe/London). If posting fails, it retries by itself for a few hours.
+- It dates each draw by the London day it ran. The draw just after midnight on 10 November has `date: "2026-11-10"`, so the page shows it as today's result.
+- The page doesn't depend on that. The next draw has its own row without a date, and "Last night's winner" is simply the newest result.
 
 | Collection | Shape | Written by | Read by |
 | --- | --- | --- | --- |
 | `entries` | `{ url (unique), username, createdAt, drawDate \| null }` | website (inserts with `drawDate: null`) | bot |
-| `draws` | `{ date "YYYY-MM-DD", entryCount, winnerUrl, winnerUsername, resultPostUrl \| null, createdAt }` | bot | website |
+| `draws` | `{ date "YYYY-MM-DD", entryCount, winnerUrl \| null, winnerUsername \| null, resultPostUrl \| null, createdAt }` | bot | website |
+
+Bot-only extras, which the website ignores:
+
+- **More fields on `draws`:** `drawNumber`, `seed`, `status`, `resultPostId` and a few for its own bookkeeping.
+- **A night with no entries:** `entryCount: 0` and `null` for the winner. The page shows it as "No winner this day."
+- **`bot_state` collection:** the bot's Instagram token. The website never reads it.
 
 Website-only extras:
 

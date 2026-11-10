@@ -16,8 +16,12 @@ export interface DrawSummary {
 
 export interface HistoryData {
   today: DateKey;
-  /** Set while today's result isn't in yet ("Draw tonight at 00:00"). */
-  pending: { date: DateKey; poolSize: number } | null;
+  /**
+   * The draw still to come, tonight at 00:00. It has no date on purpose: the
+   * bot dates a draw by the London day it runs, which is the day after the
+   * entries came in, and the page shouldn't depend on that.
+   */
+  next: { poolSize: number };
   /** Results written by the bot, newest first. */
   draws: DrawSummary[];
 }
@@ -36,13 +40,8 @@ export async function loadHistory(
     .toArray();
 
   const draws = docs.map(toSummary).filter((draw): draw is DrawSummary => draw !== null);
-  const drawnToday = draws.some((draw) => draw.date === today);
 
-  return {
-    today,
-    pending: drawnToday ? null : { date: today, poolSize: await countPool(db, now) },
-    draws,
-  };
+  return { today, next: { poolSize: await countPool(db, now) }, draws };
 }
 
 /** The most recent valid result the bot has written (dated today or earlier). */

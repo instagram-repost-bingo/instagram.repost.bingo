@@ -17,6 +17,13 @@ const nowInSeconds = () => Math.floor(Date.now() / 1000);
 // browser fills in the real time after hydration.
 const noTimeOnServer = () => null;
 
+/**
+ * The bot's job is scheduled for 00:02, usually starts a few minutes late, and
+ * retries at 00:32 and later if posting fails. These refreshes cover the first
+ * hour and a half, then stop.
+ */
+const REFRESH_MINUTES_AFTER_MIDNIGHT = [3, 5, 8, 12, 20, 30, 45, 60, 90];
+
 /** Counts down to the next draw at 00:00 UK time (handles GMT and BST). */
 export function Countdown() {
   const router = useRouter();
@@ -26,8 +33,8 @@ export function Countdown() {
   const target = now ? nextLondonMidnight(now) : null;
   const parts = now && target ? splitCountdown(target.getTime() - now.getTime()) : null;
 
-  // When midnight passes the target moves on a day. The bot writes the result
-  // a little after midnight, so refresh the page data a few times to show it.
+  // When midnight passes, the target moves on a day and the bot's result is on
+  // its way. Refresh the page data at these times so it shows up by itself.
   const targetTime = target?.getTime() ?? null;
   const previousTarget = useRef<number | null>(null);
   useEffect(() => {
@@ -35,7 +42,9 @@ export function Countdown() {
     const previous = previousTarget.current;
     previousTarget.current = targetTime;
     if (previous === null || previous === targetTime) return;
-    const timers = [30_000, 120_000, 300_000].map((delay) => setTimeout(() => router.refresh(), delay));
+    const timers = REFRESH_MINUTES_AFTER_MIDNIGHT.map((minutes) =>
+      setTimeout(() => router.refresh(), minutes * 60_000),
+    );
     return () => timers.forEach(clearTimeout);
   }, [targetTime, router]);
 

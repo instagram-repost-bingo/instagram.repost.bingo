@@ -36,27 +36,26 @@ export async function DrawHistory() {
     );
   }
 
-  const { today, pending, draws } = data;
+  const { today, next, draws } = data;
   const recent = draws.slice(0, VISIBLE_PAST_DRAWS);
   const older = draws.slice(VISIBLE_PAST_DRAWS);
 
   return (
     <div className="history__lists">
       <ol className="draws">
-        {pending ? (
-          <li className="draw draw--pending">
-            <BingoBall label={dayOfMonth(pending.date)} caption={monthAbbrev(pending.date)} tone="accent" />
-            <div className="draw__body">
-              <p className="draw__date">
-                <DateLabel date={pending.date} today={today} />
-              </p>
-              <p className="draw__count">{formatEntryCount(pending.poolSize)} in the pool</p>
-              <p className="draw__status">
-                <span className="pill">Draw tonight at {DRAW_TIME_LABEL}</span>
-              </p>
-            </div>
-          </li>
-        ) : null}
+        {/* Always first: the draw still to come. Results follow, newest first. */}
+        <li className="draw draw--pending">
+          <BingoBall label="?" caption="NEXT" tone="accent" />
+          <div className="draw__body">
+            <p className="draw__date">
+              <strong>Next draw</strong>
+            </p>
+            <p className="draw__count">{formatEntryCount(next.poolSize)} in the pool</p>
+            <p className="draw__status">
+              <span className="pill">Tonight at {DRAW_TIME_LABEL}</span>
+            </p>
+          </div>
+        </li>
         {recent.map((draw) => (
           <DrawRow key={draw.date} draw={draw} today={today} />
         ))}
@@ -72,8 +71,6 @@ export async function DrawHistory() {
           </ol>
         </details>
       ) : null}
-
-      {!pending && draws.length === 0 ? <p className="history__notice">No draws yet.</p> : null}
     </div>
   );
 }

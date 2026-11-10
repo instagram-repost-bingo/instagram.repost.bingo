@@ -11,17 +11,46 @@ afterAll(async () => {
   await mongo?.stop();
 });
 
-/** A draw exactly as the bot writes it. */
+/**
+ * A draw exactly as the bot writes it (src/run.ts in repost-bingo-bot): dated
+ * by the London day it ran, just after midnight, with the bot's own extra fields.
+ */
 function botDraw(date: string, overrides: Record<string, unknown> = {}) {
   return {
     date,
+    drawNumber: Number(date.slice(8)),
     entryCount: 12,
     winnerUrl: `https://www.instagram.com/p/Win${date.replaceAll("-", "")}`,
     winnerUsername: "lucky.one",
-    resultPostUrl: `https://www.instagram.com/p/Res${date.replaceAll("-", "")}`,
-    createdAt: new Date(`${date}T12:00:30Z`),
+    seed: "ab".repeat(32),
+    resultPostId: "17900000000000000",
+    resultPostUrl: `https://www.instagram.com/p/Res${date.replaceAll("-", "")}/`,
+    status: "published",
+    createdAt: new Date(`${date}T00:03:10Z`),
+    imageUrl: "https://files.catbox.moe/card.jpg",
+    containerId: "17890000000000000",
+    winnerTagged: true,
+    notifiedAt: new Date(`${date}T00:03:40Z`),
+    error: null,
     ...overrides,
   };
+}
+
+/** A night with nobody in the pool, as the bot records it. */
+function emptyDraw(date: string) {
+  return botDraw(date, {
+    entryCount: 0,
+    winnerUrl: null,
+    winnerUsername: null,
+    seed: null,
+    resultPostId: null,
+    resultPostUrl: null,
+    status: "skipped_empty",
+    imageUrl: null,
+    containerId: null,
+    winnerTagged: null,
+    notifiedAt: null,
+  });
 }
 
 function entry(createdAt: string, drawDate: string | null = null) {
@@ -39,28 +68,37 @@ async function seed(db: Db, draws: object[], entries: object[] = []) {
 }
 
 describe("draw history", () => {
-  it("shows today's draw as pending until the bot writes the result", async () => {
+  it("always has a next draw, before and after tonight's result arrives", async () => {
     const db = mongo.freshDb();
     await seed(db, [botDraw("2026-11-07"), botDraw("2026-11-08")]);
 
-    const morning = await loadHistory(db, new Date("2026-11-09T10:00:00Z"));
-    expect(morning.today).toBe("2026-11-09");
-    expect(morning.pending).toEqual({ date: "2026-11-09", poolSize: 0 });
-    expect(morning.draws.map((d) => d.date)).toEqual(["2026-11-08", "2026-11-07"]);
+    // 00:01 on the 9th: midnight has passed and the bot hasn't written the result yet.
+    const justAfterMidnight = await loadHistory(db, new Date("2026-11-09T00:01:00Z"));
+    expect(justAfterMidnight.today).toBe("2026-11-09");
+    expect(justAfterMidnight.next).toEqual({ poolSize: 0 });
+    expect(justAfterMidnight.draws.map((d) => d.date)).toEqual(["2026-11-08", "2026-11-07"]);
 
-    // Still pending later in the day if the bot hasn't written today's result yet.
-    expect((await loadHistory(db, new Date("2026-11-09T12:30:00Z"))).pending).not.toBeNull();
-
+    // The bot dates the midnight draw by the day it ran: the 9th.
     await seed(db, [botDraw("2026-11-09")]);
-    const afternoon = await loadHistory(db, new Date("2026-11-09T12:31:00Z"));
-    expect(afternoon.pending).toBeNull();
-    expect(afternoon.draws[0]).toEqual({
+    const morning = await loadHistory(db, new Date("2026-11-09T10:00:00Z"));
+    expect(morning.next).toEqual({ poolSize: 0 });
+    expect(morning.draws.map((d) => d.date)).toEqual(["2026-11-09", "2026-11-08", "2026-11-07"]);
+    expect(morning.draws[0]).toEqual({
       date: "2026-11-09",
       entryCount: 12,
       winnerUsername: "lucky.one",
       winnerUrl: "https://www.instagram.com/p/Win20261109",
       resultPostUrl: "https://www.instagram.com/p/Res20261109",
     });
+  });
+
+  it("reads a night with no entries as a draw without a winner", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [emptyDraw("2026-11-09")]);
+    const history = await loadHistory(db, new Date("2026-11-09T10:00:00Z"));
+    expect(history.draws).toEqual([
+      { date: "2026-11-09", entryCount: 0, winnerUsername: null, winnerUrl: null, resultPostUrl: null },
+    ]);
   });
 
   it("uses the London date for today, in summer too", async () => {
@@ -84,15 +122,17 @@ describe("draw history", () => {
     expect(history.draws.map((d) => d.date)).toEqual(["2026-11-08"]);
   });
 
-  it("shows a draw before its result post is published", async () => {
+  it("shows a winner before the result post is published, or if posting failed", async () => {
     const db = mongo.freshDb();
-    await seed(db, [botDraw("2026-11-09", { resultPostUrl: null })]);
+    await seed(db, [
+      botDraw("2026-11-09", { resultPostId: null, resultPostUrl: null, status: "failed", error: "Image upload failed (503)" }),
+    ]);
     const history = await loadHistory(db, new Date("2026-11-09T13:00:00Z"));
     expect(history.draws[0]).toMatchObject({ winnerUsername: "lucky.one", resultPostUrl: null });
   });
 });
 
-describe("pool size for today's pending draw", () => {
+describe("pool size for the next draw", () => {
   it("counts entries not yet picked from the last 7 days", async () => {
     const db = mongo.freshDb();
     const now = new Date("2026-11-09T10:00:00Z");
@@ -107,7 +147,7 @@ describe("pool size for today's pending draw", () => {
       ],
     );
     expect(await countPool(db, now)).toBe(2);
-    expect((await loadHistory(db, now)).pending).toEqual({ date: "2026-11-09", poolSize: 2 });
+    expect((await loadHistory(db, now)).next).toEqual({ poolSize: 2 });
   });
 });
 
