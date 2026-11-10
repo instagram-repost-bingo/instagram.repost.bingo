@@ -41,7 +41,7 @@ const nextConfig: NextConfig = {
   // The result card is drawn with Skia, a native module. Load it from
   // node_modules at runtime instead of bundling it.
   serverExternalPackages: ["@napi-rs/canvas"],
-  // lib/result-card.ts reads its font from disk, so ship the font with the card route.
+  // lib/result-card.ts reads its font from disk, so ship the font with the image routes.
   outputFileTracingIncludes: {
     "/api/draws/**": ["./assets/fonts/**/*"],
   },

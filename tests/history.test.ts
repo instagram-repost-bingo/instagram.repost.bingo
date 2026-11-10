@@ -1,6 +1,6 @@
 import type { Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { countPool, loadHistory, loadLatestDraw, loadPool, toSummary } from "@/lib/history";
+import { countPool, loadHistory, loadLatestDraw, loadPool, loadStoryDraw, toSummary } from "@/lib/history";
 import { startTestMongo } from "./support/mongo";
 
 let mongo: Awaited<ReturnType<typeof startTestMongo>>;
@@ -257,5 +257,30 @@ describe("last night's winner", () => {
 
   it("is null before the first draw", async () => {
     expect(await loadLatestDraw(mongo.freshDb(), new Date("2026-11-09T10:00:00Z"))).toBeNull();
+  });
+});
+
+describe("story draw", () => {
+  it("returns a winner and an empty night, and rejects a draw that isn't either", async () => {
+    const db = mongo.freshDb();
+    await seed(db, [
+      botDraw("2026-11-08", { drawNumber: 2, winnerUsername: "slashie.app", entryCount: 6 }),
+      emptyDraw("2026-11-09"),
+      botDraw("2026-11-07", { winnerUsername: "<script>", entryCount: 4 }),
+      botDraw("2026-11-06", { drawNumber: undefined }),
+    ]);
+
+    expect(await loadStoryDraw(db, "2026-11-08")).toEqual({
+      date: "2026-11-08",
+      drawNumber: 2,
+      entryCount: 6,
+      winnerUsername: "slashie.app",
+    });
+    const empty = await loadStoryDraw(db, "2026-11-09");
+    expect(empty).toMatchObject({ winnerUsername: null, entryCount: 0, date: "2026-11-09" });
+    expect(empty?.drawNumber).toBeGreaterThan(0);
+    expect(await loadStoryDraw(db, "2026-11-07")).toBeNull();
+    expect(await loadStoryDraw(db, "2026-11-06")).toBeNull();
+    expect(await loadStoryDraw(db, "2026-11-01")).toBeNull();
   });
 });

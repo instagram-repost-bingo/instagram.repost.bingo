@@ -1,6 +1,12 @@
 import type { Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { CARD_CACHE_CONTROL, handleDrawCard, type DrawCardDeps } from "@/lib/api/draw-card";
+import {
+  CARD_CACHE_CONTROL,
+  handleDrawCard,
+  handleDrawStory,
+  type DrawCardDeps,
+  type DrawStoryDeps,
+} from "@/lib/api/draw-card";
 import { CARD_RATE_LIMIT } from "@/lib/config";
 import type { ResultCardInput } from "@/lib/result-card";
 import { startTestMongo } from "./support/mongo";
@@ -144,6 +150,114 @@ describe("GET /api/draws/{date}/card.jpg", () => {
       throw new Error("font missing");
     });
     const response = await handleDrawCard(cardRequest("2026-11-10"), "2026-11-10", deps(db, { renderJpeg }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    error.mockRestore();
+  });
+});
+
+function storyDeps(db: Db, overrides: Partial<DrawStoryDeps> = {}): DrawStoryDeps {
+  return {
+    getDb: () => db,
+    rateLimitSecret: "test-secret",
+    renderJpeg: vi.fn(async () => FAKE_JPEG),
+    now: () => NOW,
+    ...overrides,
+  };
+}
+
+function storyRequest(date: string, ip = "203.0.113.7"): Request {
+  return new Request(`http://localhost/api/draws/${date}/story.jpg`, { headers: { "x-real-ip": ip } });
+}
+
+describe("GET /api/draws/{date}/story.jpg", () => {
+  it("draws a story for a recorded winner and caches it like the card", async () => {
+    const db = mongo.freshDb();
+    await db.collection("draws").insertOne(draw({ drawNumber: 1, winnerUsername: "slashie.app", entryCount: 6 }));
+    const renderJpeg = vi.fn(async () => FAKE_JPEG);
+
+    const response = await handleDrawStory(storyRequest("2026-11-10"), "2026-11-10", storyDeps(db, { renderJpeg }));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/jpeg");
+    expect(response.headers.get("cache-control")).toBe(CARD_CACHE_CONTROL);
+    expect(response.headers.get("content-disposition")).toBe('inline; filename="repost-bingo-2026-11-10-story.jpg"');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(FAKE_JPEG);
+    expect(renderJpeg).toHaveBeenCalledWith({
+      drawNumber: 1,
+      dateLabel: "10 Nov 2026",
+      winnerUsername: "slashie.app",
+      entryCount: 6,
+    });
+  });
+
+  it("draws a pitch when the night had no entries", async () => {
+    const db = mongo.freshDb();
+    await db.collection("draws").insertOne(
+      draw({ status: "skipped_empty", entryCount: 0, winnerUrl: null, winnerUsername: null, seed: null, drawNumber: 4 }),
+    );
+    const renderJpeg = vi.fn(async () => FAKE_JPEG);
+    const response = await handleDrawStory(storyRequest("2026-11-10"), "2026-11-10", storyDeps(db, { renderJpeg }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/jpeg");
+    expect(renderJpeg).toHaveBeenCalledWith({
+      drawNumber: 4,
+      dateLabel: "10 Nov 2026",
+      winnerUsername: null,
+      entryCount: 0,
+    });
+  });
+
+  it.each([
+    ["a malformed date", "10-11-2026"],
+    ["a date after today in London", "2026-11-11"],
+  ])("answers 404 for %s without touching the database", async (_label, date) => {
+    const getDb = vi.fn(() => mongo.freshDb());
+    const response = await handleDrawStory(storyRequest(date), date, { ...storyDeps(mongo.freshDb()), getDb });
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ ok: false, code: "not_found" });
+    expect(getDb).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no draw for that date", null],
+    ["a username that isn't valid", draw({ winnerUsername: "<script>" })],
+    ["a missing draw number", draw({ drawNumber: undefined })],
+  ])("answers 404 for %s and draws nothing", async (_label, doc) => {
+    const db = mongo.freshDb();
+    if (doc) await db.collection("draws").insertOne(doc);
+    const renderJpeg = vi.fn(async () => FAKE_JPEG);
+    const response = await handleDrawStory(storyRequest("2026-11-10"), "2026-11-10", storyDeps(db, { renderJpeg }));
+    expect(response.status).toBe(404);
+    expect(renderJpeg).not.toHaveBeenCalled();
+  });
+
+  it("shares the card's per-IP rate limit", async () => {
+    const db = mongo.freshDb();
+    await db.collection("draws").insertOne(draw());
+    const ip = "203.0.113.50";
+    for (let i = 0; i < CARD_RATE_LIMIT.limit - 1; i++) {
+      const ok = await handleDrawCard(cardRequest("2026-11-10", ip), "2026-11-10", deps(db));
+      expect(ok.status).toBe(200);
+    }
+    const story = await handleDrawStory(storyRequest("2026-11-10", ip), "2026-11-10", storyDeps(db));
+    expect(story.status).toBe(200);
+    const limited = await handleDrawStory(storyRequest("2026-11-10", ip), "2026-11-10", storyDeps(db));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("cache-control")).toBe("no-store");
+    const otherAddress = await handleDrawStory(storyRequest("2026-11-10", "198.51.100.9"), "2026-11-10", storyDeps(db));
+    expect(otherAddress.status).toBe(200);
+  });
+
+  it("answers 503, not a broken image, when drawing fails", async () => {
+    const db = mongo.freshDb();
+    await db.collection("draws").insertOne(draw());
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const renderJpeg = vi.fn(async (): Promise<Uint8Array> => {
+      throw new Error("font missing");
+    });
+    const response = await handleDrawStory(storyRequest("2026-11-10"), "2026-11-10", storyDeps(db, { renderJpeg }));
     expect(response.status).toBe(503);
     expect(response.headers.get("content-type")).toContain("application/json");
     error.mockRestore();

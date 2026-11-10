@@ -16,16 +16,16 @@ The system is two repos that share one MongoDB database:
  repost.bingo website (this repo)          draw bot (private repo, repost-bingo-bot)
  - collects entries                        - runs the draw every night at 00:00 London time
  - shows the draw history                  - writes the result to `draws`
- - draws the result card on request
+ - draws the result card and story on request
             \                                         /
              +------------ MongoDB Atlas ------------+
                  entries: written by the website, picked by the bot
                  draws:   written by the bot, read by the website
 ```
 
-This repo has no draw, scheduling or Instagram posting logic. It writes new entries, reads results, and draws a result's card when asked.
+This repo has no draw, scheduling or Instagram posting logic. It writes new entries, reads results, and draws a result image when asked.
 
-Nothing posts to Instagram automatically. Whoever runs the account opens the winner's post and taps Repost. A posting job can be added later without changing either repo: it fetches the card from [`/api/draws/{date}/card.jpg`](#result-card-get-apidrawsdatecardjpg).
+Nothing in this repo posts to Instagram. Whoever runs the account opens the winner's post and taps Repost. The night's story is drawn here, at [`/api/draws/{date}/story.jpg`](#story-image-get-apidrawsdatestoryjpg), for the bot to hand to Instagram. The 4:5 card is still at [`/api/draws/{date}/card.jpg`](#result-card-get-apidrawsdatecardjpg).
 
 ## What the site does
 
@@ -123,12 +123,31 @@ The winner's card for the draw on that date, drawn on request as a 1080×1350 JP
 | --- | --- |
 | 200 | The JPEG, with `Cache-Control: public, max-age=3600, s-maxage=86400`. |
 | 404 | Not a real date, a date after today in London, no draw yet, a night with an empty pool, or a draw document that fails the checks above. Never cached. |
-| 429 | More than 30 cards drawn for one IP address in 10 minutes. |
+| 429 | More than 30 images drawn for one IP address in 10 minutes. The story counts towards the same limit. |
 | 503 | The database is unavailable, or drawing failed. |
 
 - **Cost:** Vercel's CDN keeps each card for a day, so a card is usually drawn once per CDN region. A request with an extra query string skips the cache, which is why drawing is rate-limited (the same keyed IP hash as entries). A card takes about 35 ms to draw, plus about 0.3 s to load Skia when a function starts cold.
 - **How:** `lib/result-card.ts` draws it with [`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas) (Skia) and the variable Bricolage Grotesque in `assets/fonts` (SIL Open Font License). `next.config.ts` keeps the native package out of the bundle (`serverExternalPackages`) and ships the font with the route (`outputFileTracingIncludes`). The Skia binary adds about 37 MB to that one function.
 - **Changing the design:** edit `lib/result-card.ts`. Its colours are the tokens in `app/globals.css`, so change them together. A new deploy starts with an empty cache, so cards are drawn again with the new design.
+
+## Story image: `GET /api/draws/{date}/story.jpg`
+
+The same night as a 1080×1920 JPEG for an Instagram story, for example `https://repost.bingo/api/draws/2026-11-10/story.jpg`. `{date}` is the draw's `date`, the same key as the card. The response is a public `image/jpeg` with no redirect, so the bot can pass the URL to Instagram as `image_url`.
+
+<img src="docs/result-story.jpg" alt="Sample story: Tonight could be yours, Draw #12, 10 Nov 2026, today's pick @your.username" width="270">
+
+It is laid out for a story, not a shrunk card. The winner stays (the @username, the draw number, the date and the entry count). The large line is a pitch, one of four, chosen from the draw number so consecutive nights don't repeat:
+
+- Your post could be next
+- Free exposure, every night
+- One post. One repost. Every day.
+- Tonight could be yours
+
+Under that: follow @insta.repost.bingo, submit a post at instagram.repost.bingo, picked daily at midnight, and "Free, credited". The type and the panels stay inside the story safe zone, about 250px clear at the top and the bottom.
+
+A night with no entries still returns a story, with the line "No entries yet - be the first to get picked", so the bot can post every night. A missing draw, a date after today in London, or a document that fails the usual checks is a 404, same as the card.
+
+It uses the card's cache header (`public, max-age=3600, s-maxage=86400`) and the same per-IP limit (30 images in 10 minutes, one shared bucket).
 
 ## Shared data contract
 
@@ -162,7 +181,7 @@ Website-only extras:
 - Next.js 16 (App Router, Cache Components) and TypeScript on Vercel.
 - MongoDB Atlas through the official `mongodb` driver. One cached client is shared across warm serverless calls, and `attachDatabasePool` from `@vercel/functions` closes idle connections cleanly on Fluid compute.
 - Plain CSS with the Bricolage Grotesque font self-hosted by `next/font`. There are no tracking scripts, cookies or images apart from the icon.
-- `@napi-rs/canvas` (Skia) draws the result card in a Node.js function.
+- `@napi-rs/canvas` (Skia) draws the result card and the story image in a Node.js function.
 - Vitest for tests. The database tests run against a real, throwaway MongoDB (`mongodb-memory-server`).
 
 ```text
@@ -172,6 +191,8 @@ app/
   api/entries/route.ts     POST: submit an entry
   api/draws/[date]/card.jpg/route.ts
                            GET: a result card as a JPEG
+  api/draws/[date]/story.jpg/route.ts
+                           GET: a story image as a JPEG
 components/
   EntryForm.tsx            link form, inline messages, Turnstile
   DrawHistory.tsx          history list (read-only, request-time)
@@ -179,8 +200,8 @@ lib/
   instagram.ts             link and username validation and normalisation
   instagram-owner.ts       reads a post's owner from Instagram's embed page
   api/create-entry.ts      the entries endpoint logic (tested directly)
-  api/draw-card.ts         the card endpoint logic (tested directly)
-  result-card.ts           draws the result card
+  api/draw-card.ts         the card and story endpoint logic (tested directly)
+  result-card.ts           draws the result card and the story
   entries.ts, history.ts   MongoDB writes and reads
   collections.ts           shared data contract types and indexes
   rate-limit.ts, turnstile.ts, mongodb.ts
@@ -206,7 +227,7 @@ Set `MONGODB_URI` in `.env.local`. Turnstile is optional locally. Leave its keys
 bun run dev
 ```
 
-Open http://localhost:3000. To see results in the history, add a document to `draws` in the shape above (the bot normally does this). Its card is at http://localhost:3000/api/draws/YYYY-MM-DD/card.jpg.
+Open http://localhost:3000. To see results in the history, add a document to `draws` in the shape above (the bot normally does this). Its card is at http://localhost:3000/api/draws/YYYY-MM-DD/card.jpg and its story at http://localhost:3000/api/draws/YYYY-MM-DD/story.jpg.
 
 Checks (all pass on `main`):
 
@@ -231,7 +252,7 @@ Use `bun run test`, not `bun test`: the tests use Vitest, and `bun test` would s
 - Unit tests for link validation and normalisation, usernames, London dates, the midnight countdown (including the nights the clocks change) and formatting.
 - Unit tests for the Instagram owner check (embed page, post-page fallback, rate limits and login walls), using a fake `fetch`.
 - Integration tests for the entries API: the shared shape, the owner check, duplicates, rate limiting and Turnstile.
-- Unit tests for the result card (size, palette, long usernames) and integration tests for the card endpoint (dates, empty nights, bad data, rate limiting, errors).
+- Unit tests for the result card and the story (size, palette, safe zone, hook rotation, long usernames) and integration tests for both image endpoints (dates, empty nights, bad data, the shared rate limit, errors).
 - Integration tests for the history, "Who's in" and last night's winner readers, including badly formed documents.
 
 The first run downloads a MongoDB binary (about 120 MB). The build does not need a database.

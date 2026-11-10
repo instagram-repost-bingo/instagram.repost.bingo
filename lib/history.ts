@@ -85,6 +85,46 @@ export async function loadCardDraw(db: Db, date: DateKey): Promise<CardDraw | nu
   };
 }
 
+/** What the story image needs. `winnerUsername` is null on a night with no entries. */
+export interface StoryDraw {
+  date: DateKey;
+  drawNumber: number;
+  entryCount: number;
+  winnerUsername: string | null;
+}
+
+/**
+ * The draw for one date, for the story image. A night with a winner matches
+ * the card. A night the bot recorded as empty (no username, zero entries)
+ * still returns a draw, so a story can be posted. Anything else is null:
+ * no document, a winner that failed the checks, or a count that isn't a
+ * whole number.
+ */
+export async function loadStoryDraw(db: Db, date: DateKey): Promise<StoryDraw | null> {
+  const doc = await drawsCollection(db).findOne({ date }, { projection: { _id: 0 } });
+  if (!doc) return null;
+  const summary = toSummary(doc);
+  if (!summary || summary.entryCount === null) return null;
+  const drawNumber: unknown = doc.drawNumber;
+  if (typeof drawNumber !== "number" || !Number.isSafeInteger(drawNumber) || drawNumber < 1) return null;
+
+  if (summary.winnerUsername && summary.entryCount >= 1) {
+    return {
+      date: summary.date,
+      drawNumber,
+      entryCount: summary.entryCount,
+      winnerUsername: summary.winnerUsername,
+    };
+  }
+
+  const rawWinner = doc.winnerUsername;
+  const noWinner = rawWinner == null || (typeof rawWinner === "string" && rawWinner.trim() === "");
+  if (noWinner && summary.entryCount === 0) {
+    return { date: summary.date, drawNumber, entryCount: 0, winnerUsername: null };
+  }
+  return null;
+}
+
 /** Entries currently in the pool: not picked yet and entered in the last 7 days. */
 function poolFilter(now: Date) {
   const since = new Date(now.getTime() - POOL_DAYS * 24 * 60 * 60 * 1000);
